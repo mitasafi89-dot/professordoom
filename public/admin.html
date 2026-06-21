@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProfessorDoom — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="crest">D</div>
+      <div>
+        <h1>ProfessorDoom</h1>
+        <div class="sub">Admin Dashboard</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="index.html">← Back to chat</a>
+    </nav>
+  </header>
+
+  <main class="admin-wrap">
+    <div class="card">
+      <h2>Back-engine credentials</h2>
+      <p class="lead">Paste the Claude token here. It is stored <strong>server-side only</strong> and is never sent back to any browser. The frontend only ever sees whether the engine is configured.</p>
+
+      <div id="statusline" class="statusline">Status: checking…</div>
+
+      <div class="field">
+        <label for="password">Admin password</label>
+        <input id="password" type="password" placeholder="admin password" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="token">Claude token (Anthropic API key recommended)</label>
+        <input id="token" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <input id="model" type="text" placeholder="claude-sonnet-4-20250514" />
+      </div>
+      <div class="field">
+        <label for="maxTokens">Max tokens per reply</label>
+        <input id="maxTokens" type="number" placeholder="4096" />
+      </div>
+
+      <button id="save" class="btn-primary">Save credentials</button>
+      <div id="notice" class="notice"></div>
+
+      <div class="warn">
+        Security: Use a real Anthropic API key (<code>x-api-key</code>) — a claude.ai session token is unofficial, breaks often, and may violate Anthropic's terms. Change the default admin password via the <code>ADMIN_PASSWORD</code> environment variable before deploying.
+      </div>
+    </div>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>

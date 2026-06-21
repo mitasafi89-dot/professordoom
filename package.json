@@ -1,0 +1,18 @@
+{
+  "name": "professordoom",
+  "version": "1.0.0",
+  "description": "ProfessorDoom \u2014 an adversarial scholarly manuscript reviewer powered by Claude.",
+  "main": "server/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "license": "MIT"
+}
