@@ -1,19 +1,24 @@
 'use strict';
 
-const statusline = document.getElementById('statusline');
-const noticeEl = document.getElementById('notice');
-const saveBtn = document.getElementById('save');
+const $ = (id) => document.getElementById(id);
+const statusline = $('statusline');
+const noticeEl = $('notice');
+const saveBtn = $('save');
+const clearBtn = $('clear');
 
 async function refreshStatus() {
   try {
-    const r = await fetch('/api/status');
-    const s = await r.json();
+    const s = await (await fetch('/api/status')).json();
     statusline.innerHTML = s.configured
-      ? 'Status: <strong style="color:#7ee787">configured</strong> · model <code>' + s.model + '</code> · max ' + s.maxTokens + ' tokens'
-      : 'Status: <strong style="color:#ff9aa0">not configured</strong> — no token set yet.';
-    if (s.model) document.getElementById('model').placeholder = s.model;
-    if (s.maxTokens) document.getElementById('maxTokens').placeholder = s.maxTokens;
-  } catch (e) {
+      ? 'Status: <strong style="color:#7ee787">configured</strong>' +
+        ' · cookie ' + (s.hasCookie ? 'set' : '<span style="color:#ff9aa0">missing</span>') +
+        ' · gummie <code>' + (s.gummieId || '—') + '</code>' +
+        ' · send ' + (s.sendConfigured ? '<code>' + s.sendMethod + ' ' + s.sendPath + '</code>' : '<span style="color:#ffcf7a">not set</span>')
+      : 'Status: <strong style="color:#ff9aa0">not configured</strong> — no session yet.';
+    if (s.gummieId) $('gummieId').placeholder = s.gummieId;
+    if (s.sendPath) $('sendPath').placeholder = s.sendPath;
+    if (s.sendMethod) $('sendMethod').placeholder = s.sendMethod;
+  } catch {
     statusline.textContent = 'Status: server offline.';
   }
 }
@@ -24,40 +29,40 @@ function notify(msg, ok) {
 }
 
 async function save() {
-  const password = document.getElementById('password').value;
-  const token = document.getElementById('token').value;
-  const model = document.getElementById('model').value.trim();
-  const maxTokens = document.getElementById('maxTokens').value.trim();
-
+  const password = $('password').value;
   if (!password) return notify('Enter the admin password.', false);
-  if (!token && !model && !maxTokens) return notify('Nothing to update.', false);
+  const body = { password };
+  const map = { authKey: 'authKey', cookie: 'cookie', gummieId: 'gummieId', userAgent: 'userAgent', sendPath: 'sendPath', sendMethod: 'sendMethod' };
+  Object.entries(map).forEach(([k, id]) => { const v = $(id).value.trim(); if (v) body[k] = v; });
+  // allow clearing sendPath explicitly
+  if ($('sendPath').value === '' && $('sendPath').dataset.touched) body.sendPath = '';
 
   saveBtn.disabled = true;
   try {
-    const body = { password };
-    if (token) body.token = token;
-    if (model) body.model = model;
-    if (maxTokens) body.maxTokens = Number(maxTokens);
-
-    const r = await fetch('/api/admin/token', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const r = await fetch('/api/admin/creds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const data = await r.json();
-    if (!r.ok) {
-      notify(data.error || 'Update failed.', false);
-    } else {
-      notify('Saved. Back-engine is ' + (data.configured ? 'configured.' : 'still missing a token.'), true);
-      document.getElementById('token').value = '';
+    if (!r.ok) notify(data.error || 'Update failed.', false);
+    else {
+      notify('Saved. Session is ' + (data.configured ? 'configured.' : 'still missing an x-auth-key.'), true);
+      $('authKey').value = ''; $('cookie').value = '';
       refreshStatus();
     }
-  } catch (e) {
-    notify('Could not reach the server.', false);
-  } finally {
-    saveBtn.disabled = false;
-  }
+  } catch { notify('Could not reach the server.', false); }
+  finally { saveBtn.disabled = false; }
 }
 
+async function clearSession() {
+  const password = $('password').value;
+  if (!password) return notify('Enter the admin password to clear.', false);
+  try {
+    const r = await fetch('/api/admin/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) });
+    const data = await r.json();
+    if (!r.ok) notify(data.error || 'Clear failed.', false);
+    else { notify('Stored session cleared.', true); refreshStatus(); }
+  } catch { notify('Could not reach the server.', false); }
+}
+
+$('sendPath').addEventListener('input', (e) => { e.target.dataset.touched = '1'; });
 saveBtn.addEventListener('click', save);
+clearBtn.addEventListener('click', clearSession);
 refreshStatus();

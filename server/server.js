@@ -1,121 +1,144 @@
 'use strict';
 
+/**
+ * ProfessorDoom — a custom UI over a Gumloop session.
+ *
+ * The back-engine is the user's own Gumloop account. The admin pastes their
+ * Gumloop session credentials (x-auth-key + session cookie) into the admin
+ * dashboard. This server holds them in memory ONLY and transparently proxies
+ * the browser's calls to https://api.gumloop.com, injecting the credentials.
+ * The frontend therefore speaks the exact Gumloop API and never sees the secrets.
+ */
+
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 
 const app = express();
-app.use(express.json({ limit: '4mb' }));
+app.use(express.json({ limit: '8mb' }));
 
 const PORT = process.env.PORT || 3000;
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_VERSION = '2023-06-01';
-
-// ---- Server-side runtime state (token NEVER sent back to the client) ----
-const state = {
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-  model: process.env.DEFAULT_MODEL || 'claude-sonnet-4-20250514',
-  maxTokens: parseInt(process.env.MAX_TOKENS || '4096', 10),
-};
+const GL_BASE = 'https://api.gumloop.com';
+const GL_ORIGIN = 'https://www.gumloop.com';
+const DEFAULT_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 
-// ---- Load the Manuscript Writing Contract as ProfessorDoom's system prompt ----
-const CONTRACT_PATH = path.join(__dirname, 'contract.txt');
-let SYSTEM_PROMPT = '';
-try {
-  const contract = fs.readFileSync(CONTRACT_PATH, 'utf-8');
-  SYSTEM_PROMPT =
-    'You are ProfessorDoom, a principal co-author, methodologist, adversarial peer ' +
-    'reviewer, and editor for scholarly manuscripts. You operate strictly under the ' +
-    'binding Manuscript Writing Contract reproduced below. Honor every rule. ' +
-    'Mediocrity, assumption, and fabrication are the only true failures.\n\n' +
-    '===== MANUSCRIPT WRITING CONTRACT =====\n' +
-    contract +
-    '\n===== END OF CONTRACT =====';
-} catch (e) {
-  SYSTEM_PROMPT = 'You are ProfessorDoom, an adversarial scholarly manuscript reviewer and co-author.';
-  console.error('WARNING: contract.txt not found, using fallback system prompt.');
+// ---- Session credentials, held server-side only ----
+const state = {
+  authKey: process.env.GUMLOOP_AUTH_KEY || '', // x-auth-key (your user id)
+  cookie: process.env.GUMLOOP_COOKIE || '',     // full session cookie string
+  gummieId: process.env.GUMLOOP_GUMMIE_ID || '', // which agent to drive
+  userAgent: process.env.GUMLOOP_UA || DEFAULT_UA,
+  // Send-message request is captured per-deployment (not in the sample HAR).
+  // Configure via the admin dashboard once you capture it from DevTools.
+  sendMethod: process.env.GUMLOOP_SEND_METHOD || 'POST',
+  sendPath: process.env.GUMLOOP_SEND_PATH || '', // e.g. gummies/{gummieId}/start
+};
+
+function glHeaders() {
+  const h = {
+    accept: '*/*',
+    'content-type': 'application/json',
+    origin: GL_ORIGIN,
+    referer: GL_ORIGIN + '/',
+    'user-agent': state.userAgent,
+  };
+  if (state.authKey) h['x-auth-key'] = state.authKey;
+  if (state.cookie) h['cookie'] = state.cookie;
+  return h;
 }
 
-// ---- Status (safe: never exposes the token) ----
+// ---- Status (never leaks secret values) ----
 app.get('/api/status', (req, res) => {
   res.json({
-    configured: Boolean(state.apiKey),
-    model: state.model,
-    maxTokens: state.maxTokens,
+    configured: Boolean(state.authKey),
+    hasCookie: Boolean(state.cookie),
+    gummieId: state.gummieId,
+    sendConfigured: Boolean(state.sendPath),
+    sendMethod: state.sendMethod,
+    sendPath: state.sendPath,
   });
 });
 
-// ---- Admin: set/update the credential (held server-side only) ----
-app.post('/api/admin/token', (req, res) => {
-  const { password, token, model, maxTokens } = req.body || {};
+// ---- Admin: set session credentials ----
+app.post('/api/admin/creds', (req, res) => {
+  const { password, authKey, cookie, gummieId, userAgent, sendPath, sendMethod } = req.body || {};
   if (password !== ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'Invalid admin password.' });
   }
-  if (typeof token === 'string' && token.trim()) {
-    state.apiKey = token.trim();
-  }
-  if (typeof model === 'string' && model.trim()) {
-    state.model = model.trim();
-  }
-  if (maxTokens && Number.isFinite(Number(maxTokens))) {
-    state.maxTokens = Number(maxTokens);
-  }
-  res.json({ ok: true, configured: Boolean(state.apiKey), model: state.model, maxTokens: state.maxTokens });
+  if (typeof authKey === 'string' && authKey.trim()) state.authKey = authKey.trim();
+  if (typeof cookie === 'string' && cookie.trim()) state.cookie = cookie.trim();
+  if (typeof gummieId === 'string' && gummieId.trim()) state.gummieId = gummieId.trim();
+  if (typeof userAgent === 'string' && userAgent.trim()) state.userAgent = userAgent.trim();
+  if (typeof sendPath === 'string') state.sendPath = sendPath.trim();
+  if (typeof sendMethod === 'string' && sendMethod.trim()) state.sendMethod = sendMethod.trim().toUpperCase();
+  res.json({ ok: true, configured: Boolean(state.authKey), gummieId: state.gummieId });
 });
 
-// ---- Chat: proxy to Claude ----
-app.post('/api/chat', async (req, res) => {
-  if (!state.apiKey) {
-    return res.status(503).json({ error: 'Backend not configured. An admin must set the Claude token in the dashboard.' });
-  }
-  const { messages } = req.body || {};
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'messages[] is required.' });
-  }
+app.post('/api/admin/clear', (req, res) => {
+  const { password } = req.body || {};
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Invalid admin password.' });
+  state.authKey = '';
+  state.cookie = '';
+  res.json({ ok: true, configured: false });
+});
 
-  // Sanitize to Anthropic message shape
-  const clean = messages
-    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-    .map((m) => ({ role: m.role, content: m.content }));
+// ---- Convenience: which gummie are we driving ----
+app.get('/api/gummie', (req, res) => res.json({ gummieId: state.gummieId }));
 
+// ---- Transparent proxy to api.gumloop.com (injects credentials) ----
+// Any browser call to /api/gl/<path>?<query> is forwarded to GL_BASE/<path>?<query>.
+app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
+  if (!state.authKey) {
+    return res.status(503).json({ error: 'Not configured. An admin must paste Gumloop session credentials in the dashboard.' });
+  }
+  const rest = req.originalUrl.replace(/^\/api\/gl\//, '');
+  const url = GL_BASE + '/' + rest;
+  const init = { method: req.method, headers: glHeaders() };
+  if (!['GET', 'HEAD'].includes(req.method)) {
+    init.body = JSON.stringify(req.body || {});
+  }
   try {
-    const r = await fetch(ANTHROPIC_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': state.apiKey,
-        'anthropic-version': ANTHROPIC_VERSION,
-      },
-      body: JSON.stringify({
-        model: state.model,
-        max_tokens: state.maxTokens,
-        system: SYSTEM_PROMPT,
-        messages: clean,
-      }),
-    });
-
-    const data = await r.json();
-    if (!r.ok) {
-      const msg = (data && data.error && data.error.message) || 'Upstream error from Claude API.';
-      return res.status(r.status).json({ error: msg });
-    }
-    const text = (data.content || [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n');
-    res.json({ reply: text, usage: data.usage || null, model: data.model || state.model });
+    const r = await fetch(url, init);
+    const text = await r.text();
+    res.status(r.status);
+    res.set('content-type', r.headers.get('content-type') || 'application/json');
+    res.send(text);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to reach Claude API: ' + err.message });
+    res.status(502).json({ error: 'Upstream Gumloop request failed: ' + err.message });
   }
 });
 
-// ---- Static frontend ----
+// ---- Send a message (uses the admin-configured send endpoint) ----
+app.post('/api/send', async (req, res) => {
+  if (!state.authKey) return res.status(503).json({ error: 'Not configured.' });
+  if (!state.sendPath) {
+    return res.status(501).json({
+      error:
+        'Send endpoint not configured. Capture a "send message" request in DevTools and set its path/method in the admin dashboard (e.g. gummies/{gummieId}/start).',
+    });
+  }
+  const pathResolved = state.sendPath.replace('{gummieId}', state.gummieId);
+  const url = GL_BASE + '/' + pathResolved.replace(/^\//, '');
+  try {
+    const r = await fetch(url, {
+      method: state.sendMethod,
+      headers: glHeaders(),
+      body: JSON.stringify(req.body || {}),
+    });
+    const text = await r.text();
+    res.status(r.status);
+    res.set('content-type', r.headers.get('content-type') || 'application/json');
+    res.send(text);
+  } catch (err) {
+    res.status(502).json({ error: 'Send failed: ' + err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.listen(PORT, () => {
-  console.log(`ProfessorDoom running on http://localhost:${PORT}`);
-  if (state.apiKey) console.log('Token loaded from environment.');
-  else console.log('No token set yet — configure it in the admin dashboard (/admin.html).');
+  console.log(`ProfessorDoom (Gumloop client) on http://localhost:${PORT}`);
+  console.log(state.authKey ? 'Session loaded from environment.' : 'No session yet — set it in /admin.html');
 });

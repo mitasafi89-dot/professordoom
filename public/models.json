@@ -1,0 +1,1043 @@
+{
+  "model_groups": [
+    {
+      "groupLabel": "Auto",
+      "options": [
+        {
+          "description": "Best balance of speed, quality, and cost",
+          "label": "Recommended",
+          "mapped_model_name": "Gemini 3.5 Flash",
+          "mapped_model_value": "gemini-3.5-flash",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "Most intelligent model built for speed with sustained frontier performance on agentic and coding tasks",
+            "intelligence_rating": 4,
+            "provider": "Google",
+            "speed_rating": 5
+          },
+          "value": "gummies_recommended"
+        },
+        {
+          "description": "Maximum intelligence for complex tasks",
+          "label": "Smartest",
+          "mapped_model_name": "Claude 4.8 Opus",
+          "mapped_model_value": "claude-opus-4-8",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1000000,
+            "description": "Most capable model for complex reasoning and agentic coding",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "value": "gummies_smartest"
+        },
+        {
+          "description": "Optimized for speed and low latency",
+          "label": "Fastest",
+          "mapped_model_name": "DeepSeek V4 Flash",
+          "mapped_model_value": "deepseek/deepseek-v4-flash",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning"
+            ],
+            "context_window": 1048576,
+            "description": "Fast OpenRouter-hosted reasoning model for long-context agent workflows",
+            "intelligence_rating": 4,
+            "provider": "DeepSeek",
+            "speed_rating": 5
+          },
+          "value": "gummies_fastest"
+        }
+      ]
+    },
+    {
+      "groupLabel": "Anthropic",
+      "icon": "/images/anthropic.png",
+      "options": [
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.8 Opus",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1000000,
+            "description": "Most capable model for complex reasoning and agentic coding",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "claude-opus-4-8"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.7 Opus",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1000000,
+            "description": "Most capable model for complex reasoning and agentic coding",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "claude-opus-4-7"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.6 Opus",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1000000,
+            "description": "Most intelligent model for building agents and coding",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "claude-opus-4-6"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.5 Opus",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "Premium model combining maximum intelligence with practical performance",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "status": "hidden",
+          "value": "claude-opus-4-5"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.1 Opus",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "Most capable model for complex analysis and creative tasks",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "status": "hidden",
+          "value": "claude-opus-4-1"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.6 Sonnet",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1000000,
+            "description": "Best combination of speed and intelligence",
+            "intelligence_rating": 4,
+            "provider": "Anthropic",
+            "speed_rating": 4
+          },
+          "status": "active",
+          "value": "claude-sonnet-4-6"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.5 Sonnet",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "Best model for complex agents and coding with extended thinking",
+            "intelligence_rating": 4,
+            "provider": "Anthropic",
+            "speed_rating": 4
+          },
+          "status": "active",
+          "value": "claude-sonnet-4-5"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4 Sonnet",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "High-performance model with extended thinking",
+            "intelligence_rating": 4,
+            "provider": "Anthropic",
+            "speed_rating": 4
+          },
+          "status": "hidden",
+          "value": "claude-sonnet-4-0"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4.5 Haiku",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "Fastest model with near-frontier intelligence",
+            "intelligence_rating": 3,
+            "provider": "Anthropic",
+            "speed_rating": 5
+          },
+          "status": "active",
+          "value": "claude-haiku-4-5"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 3.7 Sonnet",
+          "lifecycle_badge": "Retired \u2014 runs as Claude 4.5 Sonnet",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "High-performance model with early extended thinking",
+            "intelligence_rating": 4,
+            "provider": "Anthropic",
+            "speed_rating": 4
+          },
+          "replacement": "claude-sonnet-4-5",
+          "status": "retired",
+          "value": "claude-3-7-sonnet-latest"
+        },
+        {
+          "badge": null,
+          "icon": "/images/anthropic.png",
+          "is_image_generation": false,
+          "label": "Claude 4 Opus",
+          "lifecycle_badge": "Retired \u2014 runs as Claude 4.5 Opus",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 200000,
+            "description": "Most capable model for complex analysis and creative tasks",
+            "intelligence_rating": 5,
+            "provider": "Anthropic",
+            "speed_rating": 2
+          },
+          "replacement": "claude-opus-4-5",
+          "status": "retired",
+          "value": "claude-opus-4-0"
+        }
+      ]
+    },
+    {
+      "groupLabel": "OpenAI",
+      "icon": "/images/openai.png",
+      "options": [
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-4.1",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1047576,
+            "description": "Smartest non-reasoning model",
+            "intelligence_rating": 4,
+            "provider": "OpenAI",
+            "speed_rating": 3
+          },
+          "status": "hidden",
+          "value": "gpt-4.1"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-4.1 Mini",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1047576,
+            "description": "Smaller, faster version of GPT-4.1",
+            "intelligence_rating": 3,
+            "provider": "OpenAI",
+            "speed_rating": 4
+          },
+          "status": "hidden",
+          "value": "gpt-4.1-mini"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.5",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "web_search",
+              "vision"
+            ],
+            "context_window": 1050000,
+            "description": "Most capable OpenAI model for complex reasoning, coding, and professional workflows",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 3
+          },
+          "status": "active",
+          "value": "gpt-5.5"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.4",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "web_search",
+              "vision"
+            ],
+            "context_window": 1000000,
+            "description": "Best intelligence at scale for agentic, coding, and professional workflows",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 3
+          },
+          "status": "active",
+          "value": "gpt-5.4"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.4 Mini",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "web_search",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Strongest mini model for coding, computer use, and subagents",
+            "intelligence_rating": 4,
+            "provider": "OpenAI",
+            "speed_rating": 4
+          },
+          "status": "active",
+          "value": "gpt-5.4-mini"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.4 Nano",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Cheapest GPT-5.4-class model for simple high-volume tasks",
+            "intelligence_rating": 3,
+            "provider": "OpenAI",
+            "speed_rating": 5
+          },
+          "status": "active",
+          "value": "gpt-5.4-nano"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.3 Codex",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Most capable agentic coding model optimized for long-horizon coding tasks",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "gpt-5.3-codex"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.2",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Best model for coding and agentic tasks across industries",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "gpt-5.2"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.2 Codex",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Most intelligent coding model optimized for long-horizon, agentic coding tasks",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "gpt-5.2-codex"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5.1",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Best model for coding and agentic tasks with configurable reasoning",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 2
+          },
+          "status": "hidden",
+          "value": "gpt-5.1"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Intelligent reasoning model for coding and agentic tasks",
+            "intelligence_rating": 5,
+            "provider": "OpenAI",
+            "speed_rating": 2
+          },
+          "status": "hidden",
+          "value": "gpt-5"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5 Mini",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Faster, cost-efficient version of GPT-5 for well-defined tasks",
+            "intelligence_rating": 4,
+            "provider": "OpenAI",
+            "speed_rating": 3
+          },
+          "status": "hidden",
+          "value": "gpt-5-mini"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-5 Nano",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": 400000,
+            "description": "Fastest, most cost-efficient version of GPT-5",
+            "intelligence_rating": 3,
+            "provider": "OpenAI",
+            "speed_rating": 4
+          },
+          "status": "hidden",
+          "value": "gpt-5-nano"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "GPT-4.1 Nano",
+          "lifecycle_badge": "Retired \u2014 runs as GPT-5.4 Mini",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 1047576,
+            "description": "Fastest, most cost-efficient version of GPT-4.1",
+            "intelligence_rating": 2,
+            "provider": "OpenAI",
+            "speed_rating": 5
+          },
+          "replacement": "gpt-5.4-mini",
+          "status": "retired",
+          "value": "gpt-4.1-nano"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "OpenAI o3",
+          "lifecycle_badge": "Retired \u2014 runs as GPT-5",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": null,
+            "description": "Reasoning model for complex tasks, succeeded by GPT-5",
+            "intelligence_rating": null,
+            "provider": "OpenAI",
+            "speed_rating": null
+          },
+          "replacement": "gpt-5",
+          "status": "retired",
+          "value": "o3"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "OpenAI o4-mini",
+          "lifecycle_badge": "Retired \u2014 runs as GPT-5 Mini",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning",
+              "vision"
+            ],
+            "context_window": null,
+            "description": "Fast, cost-efficient reasoning model, succeeded by GPT-5 mini",
+            "intelligence_rating": null,
+            "provider": "OpenAI",
+            "speed_rating": null
+          },
+          "replacement": "gpt-5-mini",
+          "status": "retired",
+          "value": "o4-mini"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "OpenAI o3 Deep Research",
+          "lifecycle_badge": "Retired \u2014 runs as GPT-5",
+          "metadata": {
+            "capabilities": [
+              "mcp"
+            ],
+            "context_window": null,
+            "description": "Most powerful deep research model",
+            "intelligence_rating": null,
+            "provider": "OpenAI",
+            "speed_rating": null
+          },
+          "replacement": "gpt-5",
+          "status": "retired",
+          "value": "o3-deep-research"
+        },
+        {
+          "badge": null,
+          "icon": "/images/openai.png",
+          "is_image_generation": false,
+          "label": "OpenAI o4-mini Deep Research",
+          "lifecycle_badge": "Retired \u2014 runs as GPT-5 Mini",
+          "metadata": {
+            "capabilities": [
+              "mcp"
+            ],
+            "context_window": null,
+            "description": "Faster, more affordable deep research model",
+            "intelligence_rating": null,
+            "provider": "OpenAI",
+            "speed_rating": null
+          },
+          "replacement": "gpt-5-mini",
+          "status": "retired",
+          "value": "o4-mini-deep-research"
+        }
+      ]
+    },
+    {
+      "groupLabel": "Google",
+      "icon": "/images/google.png",
+      "options": [
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 3.1 Pro",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "Most powerful agentic model with state-of-the-art reasoning and multimodal understanding",
+            "intelligence_rating": 5,
+            "provider": "Google",
+            "speed_rating": 2
+          },
+          "status": "active",
+          "value": "gemini-3.1-pro-preview"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 3.5 Flash",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "Most intelligent model built for speed with sustained frontier performance on agentic and coding tasks",
+            "intelligence_rating": 4,
+            "provider": "Google",
+            "speed_rating": 5
+          },
+          "status": "active",
+          "value": "gemini-3.5-flash"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 3 Flash",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "Most intelligent model built for speed, combining frontier intelligence with superior grounding",
+            "intelligence_rating": 3,
+            "provider": "Google",
+            "speed_rating": 5
+          },
+          "status": "active",
+          "value": "gemini-3-flash-preview"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 2.5 Pro",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "State-of-the-art thinking model for complex reasoning in code, math, and STEM",
+            "intelligence_rating": 4,
+            "provider": "Google",
+            "speed_rating": 3
+          },
+          "status": "hidden",
+          "value": "gemini-2.5-pro"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 2.5 Flash",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "Best price-performance for large scale processing and low-latency agentic tasks",
+            "intelligence_rating": 3,
+            "provider": "Google",
+            "speed_rating": 5
+          },
+          "status": "hidden",
+          "value": "gemini-2.5-flash"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemma 7B",
+          "lifecycle_badge": "Legacy",
+          "metadata": {
+            "capabilities": [],
+            "context_window": null,
+            "description": null,
+            "intelligence_rating": null,
+            "provider": "Google",
+            "speed_rating": null
+          },
+          "status": "hidden",
+          "value": "gemma-7b-it"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 3 Pro",
+          "lifecycle_badge": "Retired \u2014 runs as Gemini 3.1 Pro",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": 1048576,
+            "description": "Most powerful agentic model with state-of-the-art reasoning and multimodal understanding",
+            "intelligence_rating": 5,
+            "provider": "Google",
+            "speed_rating": 2
+          },
+          "replacement": "gemini-3.1-pro-preview",
+          "status": "retired",
+          "value": "gemini-3-pro-preview"
+        },
+        {
+          "badge": null,
+          "icon": "/images/google.png",
+          "is_image_generation": false,
+          "label": "Gemini 2.0 Flash",
+          "lifecycle_badge": "Retired \u2014 runs as Gemini 2.5 Flash",
+          "metadata": {
+            "capabilities": [
+              "functions",
+              "vision"
+            ],
+            "context_window": null,
+            "description": "Second generation workhorse model with 1M token context window",
+            "intelligence_rating": null,
+            "provider": "Google",
+            "speed_rating": null
+          },
+          "replacement": "gemini-2.5-flash",
+          "status": "retired",
+          "value": "gemini-2.0-flash-001"
+        }
+      ]
+    },
+    {
+      "groupLabel": "DeepSeek",
+      "icon": "/images/deepseek.png",
+      "options": [
+        {
+          "badge": null,
+          "icon": "/images/deepseek.png",
+          "is_image_generation": false,
+          "label": "DeepSeek V4 Flash",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning"
+            ],
+            "context_window": 1048576,
+            "description": "Fast OpenRouter-hosted reasoning model for long-context agent workflows",
+            "intelligence_rating": 4,
+            "provider": "DeepSeek",
+            "speed_rating": 5
+          },
+          "status": "active",
+          "value": "deepseek/deepseek-v4-flash"
+        },
+        {
+          "badge": null,
+          "icon": "/images/deepseek.png",
+          "is_image_generation": false,
+          "label": "DeepSeek V4 Pro",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning"
+            ],
+            "context_window": 1048576,
+            "description": "Most capable OpenRouter-hosted DeepSeek model for complex reasoning, coding, and long-context agent workflows",
+            "intelligence_rating": 5,
+            "provider": "DeepSeek",
+            "speed_rating": 3
+          },
+          "status": "active",
+          "value": "deepseek/deepseek-v4-pro"
+        }
+      ]
+    },
+    {
+      "groupLabel": "MiniMax",
+      "icon": null,
+      "options": [
+        {
+          "badge": null,
+          "icon": null,
+          "is_image_generation": false,
+          "label": "MiniMax M3",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 524288,
+            "description": "Native multimodal model for agentic coding and tool use",
+            "intelligence_rating": 5,
+            "provider": "MiniMax",
+            "speed_rating": 4
+          },
+          "status": "active",
+          "value": "accounts/fireworks/models/minimax-m3"
+        }
+      ]
+    },
+    {
+      "groupLabel": "Z.ai",
+      "icon": null,
+      "options": [
+        {
+          "badge": null,
+          "icon": null,
+          "is_image_generation": false,
+          "label": "GLM-5.2",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "reasoning"
+            ],
+            "context_window": 1048576,
+            "description": "Flagship MoE model with 1M context for coding, reasoning, and agentic workflows",
+            "intelligence_rating": 5,
+            "provider": "Z.ai",
+            "speed_rating": 4
+          },
+          "status": "active",
+          "value": "accounts/fireworks/models/glm-5p2"
+        }
+      ]
+    },
+    {
+      "groupLabel": "Qwen",
+      "icon": null,
+      "options": [
+        {
+          "badge": null,
+          "icon": null,
+          "is_image_generation": false,
+          "label": "Qwen3.5 397B",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "vision"
+            ],
+            "context_window": 262144,
+            "description": "Flagship model with top-tier reasoning and multilingual capabilities",
+            "intelligence_rating": 5,
+            "provider": "Qwen",
+            "speed_rating": 3
+          },
+          "status": "active",
+          "value": "qwen/qwen3.5-397b-a17b"
+        }
+      ]
+    },
+    {
+      "groupLabel": "Moonshot",
+      "icon": null,
+      "options": [
+        {
+          "badge": null,
+          "icon": null,
+          "is_image_generation": false,
+          "label": "Kimi K2.7 Code",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "functions",
+              "vision"
+            ],
+            "context_window": 262144,
+            "description": "Coding-focused agentic model for long-horizon software engineering tasks",
+            "intelligence_rating": 5,
+            "provider": "Moonshot",
+            "speed_rating": 4
+          },
+          "status": "active",
+          "value": "accounts/fireworks/models/kimi-k2p7-code"
+        },
+        {
+          "badge": null,
+          "icon": null,
+          "is_image_generation": false,
+          "label": "Kimi K2.6",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "vision"
+            ],
+            "context_window": 262144,
+            "description": "Next-generation multimodal model for long-horizon coding, UI/UX generation, and multi-agent orchestration",
+            "intelligence_rating": 5,
+            "provider": "Moonshot",
+            "speed_rating": 3
+          },
+          "status": "active",
+          "value": "moonshotai/kimi-k2.6"
+        },
+        {
+          "badge": null,
+          "icon": null,
+          "is_image_generation": false,
+          "label": "Kimi K2.5",
+          "lifecycle_badge": "Retired \u2014 runs as Kimi K2.6",
+          "metadata": {
+            "capabilities": [
+              "mcp",
+              "vision"
+            ],
+            "context_window": 262144,
+            "description": "Native multimodal model with state-of-the-art visual coding and agentic capabilities",
+            "intelligence_rating": 5,
+            "provider": "Moonshot",
+            "speed_rating": 3
+          },
+          "replacement": "moonshotai/kimi-k2.6",
+          "status": "retired",
+          "value": "moonshotai/kimi-k2.5"
+        }
+      ]
+    }
+  ]
+}
