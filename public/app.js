@@ -54,7 +54,8 @@ async function refreshStatus() {
     GUMMIE_ID = s.gummieId || '';
     window.SITEKEYS = { turnstile: s.turnstileSiteKey, hcaptcha: s.hcaptchaSiteKey };
     if (!s.configured) {
-      bannerEl.className = 'banner';
+      bannerEl.className = 'banner show warn';
+      bannerEl.innerHTML = 'Session not configured. Add your Gumloop credentials in the <a href="/admin">admin dashboard</a> to start chatting.';
       return false;
     }
     if (!GUMMIE_ID) {
@@ -338,8 +339,10 @@ if (skillSelectEl) {
   // the Gumloop session — load them too so the composer's skill picker is populated.
   await loadSkills();
   const ok = await refreshStatus();
+  // Always render the verification widget so the "I am human" check is visible
+  // regardless of session/agent config — the site keys are served independently.
+  renderCaptcha();
   if (ok) {
-    renderCaptcha();
     loadProfile();
     await loadConversations();
   }
