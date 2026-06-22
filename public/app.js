@@ -331,11 +331,13 @@ if (skillSelectEl) {
 
 // ---------- boot ----------
 (async function init() {
+  // Model picker is static metadata (API with models.json fallback) — always
+  // populate it so the dropdown works regardless of session/verification state.
+  await loadModels();
   const ok = await refreshStatus();
   if (ok) {
     renderCaptcha();
     loadProfile();
-    await loadModels();
     await loadSkills();
     await loadConversations();
   }
