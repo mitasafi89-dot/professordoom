@@ -46,6 +46,12 @@
         <label for="gummieId">Agent ID <span class="label-hint">(which agent to drive)</span></label>
         <input id="gummieId" type="text" placeholder="e.g. 36L7WDxBd9NTmRifXSzZq3" />
       </div>
+      <button id="detectAgents" class="btn-primary" style="background:transparent;border:1px solid var(--gold);color:var(--gold);margin-top:0">Detect my agents</button>
+      <div class="field" id="agentPickWrap" style="display:none;margin-top:12px">
+        <label for="agentSelect">Pick an agent <span class="label-hint">(fills Agent ID — then Save)</span></label>
+        <select id="agentSelect"></select>
+      </div>
+      <div id="agentNotice" class="notice"></div>
 
       <h2 style="margin-top:26px">Platform keys <span class="label-hint">(shared defaults — change only if needed)</span></h2>
       <div class="field">

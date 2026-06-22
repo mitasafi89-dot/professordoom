@@ -154,6 +154,30 @@ async function saveSkill() {
   finally { $("saveSkill").disabled = false; }
 }
 
+function agentNotify(msg, ok) { const el = $("agentNotice"); el.textContent = msg; el.className = "notice " + (ok ? "ok" : "err"); }
+
+async function detectAgents() {
+  const password = $("password").value;
+  if (!password) return agentNotify("Enter the admin password first.", false);
+  $("detectAgents").disabled = true;
+  agentNotify("Detecting…", true);
+  try {
+    const { ok, data } = await post("/api/admin/agents", { password });
+    if (!ok) return agentNotify(data.error || "Could not detect agents.", false);
+    const agents = data.agents || [];
+    if (!agents.length) return agentNotify("No agents found on this account — enter the Agent ID manually.", false);
+    const sel = $("agentSelect");
+    sel.innerHTML = agents.map((x) => '<option value="' + x.id + '">' + x.name + " — " + x.id + "</option>").join("");
+    $("agentPickWrap").style.display = "";
+    $("gummieId").value = agents[0].id;
+    sel.value = agents[0].id;
+    agentNotify("✓ Found " + agents.length + " agent(s). " + (agents.length === 1 ? "Filled into Agent ID — Save to apply." : "Pick one, then Save."), true);
+  } catch { agentNotify("Could not reach the server.", false); }
+  finally { $("detectAgents").disabled = false; }
+}
+
+$("detectAgents").addEventListener("click", detectAgents);
+$("agentSelect").addEventListener("change", () => { $("gummieId").value = $("agentSelect").value; });
 $("extract").addEventListener("click", extractBlob);
 $("save").addEventListener("click", save);
 $("verify").addEventListener("click", verify);

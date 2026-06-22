@@ -301,6 +301,26 @@ app.post("/api/admin/verify", async (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// List the account's agents so the admin can pick one instead of hunting for the ID.
+app.post("/api/admin/agents", async (req, res) => {
+  const { password } = req.body || {};
+  if (!checkPassword(password)) return res.status(401).json({ error: "Invalid admin password." });
+  if (!state.refreshToken) return res.status(400).json({ error: "Set a refresh token first, then detect agents." });
+  try {
+    const { idToken, uid } = await mintIdToken();
+    const r = await fetch(API + "/gummies", { headers: restHeaders(idToken, uid) });
+    const text = await r.text();
+    if (!r.ok) return res.status(502).json({ error: "Upstream " + r.status + ": " + text.slice(0, 200) });
+    let d; try { d = JSON.parse(text); } catch { d = {}; }
+    const arr = Array.isArray(d) ? d : (d.data || d.gummies || d.results || d.items || []);
+    const agents = arr.map((g) => ({
+      id: g.gummie_id || g.id || g.gummieId || g._id || "",
+      name: g.name || g.gummie_name || g.title || g.label || "(unnamed)",
+    })).filter((a) => a.id);
+    res.json({ agents });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
 // ===================== Skills (working contracts) =====================
 app.get("/api/skills", (req, res) => {
   const list = DEFAULT_SKILLS.map((d) => {
