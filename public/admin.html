@@ -16,131 +16,155 @@
         <div class="crest" aria-label="ProfessorDoom"></div>
         <div>
           <h1><span class="wm-a">Professor</span><span class="wm-b">Doom</span></h1>
-          <div class="sub">Admin</div>
+          <div class="sub">Admin console</div>
         </div>
       </div>
       <div class="admin-chips">
-        <span id="chipSession" class="chip"><span class="cdot"></span>Checking…</span>
+        <span id="chipSession" class="chip"><span class="cdot"></span>Checking&hellip;</span>
         <span id="chipDb" class="chip"><span class="cdot"></span>Database</span>
       </div>
     </header>
 
-    <div class="admin-pw">
-      <label for="password">Admin password</label>
-      <input id="password" type="password" placeholder="Enter to authorize changes" autocomplete="off" />
-      <span class="pw-hint">Required for every save action below.</span>
-    </div>
+    <div class="admin-layout">
+      <aside class="admin-side">
+        <nav class="admin-tabs" role="tablist">
+          <button class="tab active" data-tab="session"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Session</button>
+          <button class="tab" data-tab="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Skills</button>
+          <button class="tab" data-tab="advanced"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>Advanced</button>
+        </nav>
+        <a class="side-back" href="/">&larr; Back to chat</a>
+      </aside>
 
-    <nav class="admin-tabs" role="tablist">
-      <button class="tab active" data-tab="session">Session</button>
-      <button class="tab" data-tab="skills">Skills</button>
-      <button class="tab" data-tab="advanced">Advanced</button>
-    </nav>
-
-    <main class="admin-body">
-      <!-- ===== Session ===== -->
-      <section id="tab-session" class="panel active">
-        <div class="pcard">
-          <div class="section-tag">Connect</div>
-          <h3>Session credentials</h3>
-          <p class="desc">Paste the <code>firebase:authUser:&hellip;</code> value from your browser storage and click <strong>Extract</strong> &mdash; the refresh token and API key fill in automatically. Credentials are held server-side only.</p>
-
-          <div class="field">
-            <label for="authBlob">Auth blob <span class="label-hint">(optional shortcut)</span></label>
-            <textarea id="authBlob" placeholder='{ "apiKey": "…", "stsTokenManager": { "refreshToken": "…" } }'></textarea>
+      <div class="admin-content">
+        <div class="admin-pw">
+          <div class="pw-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <div class="pw-main">
+            <label for="password">Admin password</label>
+            <input id="password" type="password" placeholder="Enter to authorize changes" autocomplete="off" />
           </div>
-          <div class="row-actions">
-            <button id="extract" class="btn-primary btn-gold">Extract from blob</button>
-          </div>
-          <div id="extractNotice" class="notice"></div>
+          <span class="pw-hint">Required for every save.</span>
+        </div>
 
-          <div class="field" style="margin-top:18px">
-            <label for="refreshToken">Refresh token</label>
-            <textarea id="refreshToken" placeholder="leave blank to keep current"></textarea>
-          </div>
+        <main class="admin-body">
+          <!-- ===== Session ===== -->
+          <section id="tab-session" class="panel active">
+            <div class="pcard">
+              <div class="pcard-head">
+                <div class="section-tag">Connect</div>
+                <h3>Session credentials</h3>
+                <p class="desc">Paste the <code>firebase:authUser:&hellip;</code> value from your browser storage and click <strong>Extract</strong> &mdash; the refresh token and API key fill in automatically. Credentials are held server-side only.</p>
+              </div>
+              <div class="pcard-body">
+                <div class="field">
+                  <label for="authBlob">Auth blob <span class="label-hint">(optional shortcut)</span></label>
+                  <textarea id="authBlob" placeholder='{ "apiKey": "&hellip;", "stsTokenManager": { "refreshToken": "&hellip;" } }'></textarea>
+                </div>
+                <div class="row-actions"><button id="extract" class="btn-primary btn-gold">Extract from blob</button></div>
+                <div id="extractNotice" class="notice"></div>
 
-          <div class="field">
-            <label for="gummieId">Agent <span class="label-hint">(which agent to drive)</span></label>
-            <div class="inline-row">
-              <input id="gummieId" type="text" placeholder="Agent ID — or click Detect" />
-              <button id="detectAgents" class="btn-primary btn-gold">Detect</button>
+                <div class="divider"></div>
+
+                <div class="field">
+                  <label for="refreshToken">Refresh token</label>
+                  <textarea id="refreshToken" placeholder="leave blank to keep current"></textarea>
+                </div>
+                <div class="field">
+                  <label for="gummieId">Agent <span class="label-hint">(which agent to drive)</span></label>
+                  <div class="inline-row">
+                    <input id="gummieId" type="text" placeholder="Agent ID &mdash; or click Detect" />
+                    <button id="detectAgents" class="btn-primary btn-gold">Detect</button>
+                  </div>
+                </div>
+                <div class="field" id="agentPickWrap" style="display:none">
+                  <label for="agentSelect">Pick an agent</label>
+                  <select id="agentSelect"></select>
+                </div>
+                <div id="agentNotice" class="notice"></div>
+              </div>
+              <div class="pcard-foot">
+                <div class="row-actions">
+                  <button id="save" class="btn-primary">Save session</button>
+                  <button id="verify" class="btn-primary btn-ghost">Verify</button>
+                  <button id="clear" class="btn-primary btn-ghost">Clear</button>
+                </div>
+                <div id="notice" class="notice"></div>
+              </div>
             </div>
-          </div>
-          <div class="field" id="agentPickWrap" style="display:none">
-            <label for="agentSelect">Pick an agent</label>
-            <select id="agentSelect"></select>
-          </div>
-          <div id="agentNotice" class="notice"></div>
+          </section>
 
-          <div class="divider"></div>
-          <div class="row-actions">
-            <button id="save" class="btn-primary">Save session</button>
-            <button id="verify" class="btn-primary btn-ghost">Verify</button>
-            <button id="clear" class="btn-primary btn-ghost">Clear</button>
-          </div>
-          <div id="notice" class="notice"></div>
-        </div>
-      </section>
+          <!-- ===== Skills ===== -->
+          <section id="tab-skills" class="panel">
+            <div class="pcard">
+              <div class="pcard-head">
+                <div class="section-tag">Working contracts</div>
+                <h3>Skills</h3>
+                <p class="desc">Each skill is a guideline document the reviewer treats as a binding contract. Upload a file (<code>.docx</code>, <code>.pdf</code>, <code>.txt</code>, <code>.md</code>) or paste the text. Users pick a skill in chat; none selected means a normal chat.</p>
+              </div>
+              <div class="pcard-body">
+                <div class="field">
+                  <label for="skillSelect">Skill</label>
+                  <select id="skillSelect"></select>
+                </div>
+                <div id="skillStatus" class="skill-status">&nbsp;</div>
+                <div class="field">
+                  <label for="skillFile">Upload document</label>
+                  <input id="skillFile" type="file" accept=".docx,.pdf,.txt,.md,.markdown,.text" />
+                </div>
+                <div class="field">
+                  <label for="skillText">&hellip; or paste / edit the contract text</label>
+                  <textarea id="skillText" class="tall" placeholder="The contract text the agent will follow for this skill"></textarea>
+                </div>
+              </div>
+              <div class="pcard-foot">
+                <div class="row-actions"><button id="saveSkill" class="btn-primary">Save contract</button></div>
+                <div id="skillNotice" class="notice"></div>
+              </div>
+            </div>
+          </section>
 
-      <!-- ===== Skills ===== -->
-      <section id="tab-skills" class="panel">
-        <div class="pcard">
-          <div class="section-tag">Working contracts</div>
-          <h3>Skills</h3>
-          <p class="desc">Each skill is a guideline document the reviewer treats as a binding contract. Upload a file (<code>.docx</code>, <code>.pdf</code>, <code>.txt</code>, <code>.md</code>) or paste the text. Users pick a skill in chat; none selected means a normal chat.</p>
+          <!-- ===== Advanced ===== -->
+          <section id="tab-advanced" class="panel">
+            <div class="pcard">
+              <div class="pcard-head">
+                <div class="section-tag">Platform keys</div>
+                <h3>Defaults &amp; overrides</h3>
+                <p class="desc">Shared across accounts &mdash; change only if needed. The API key is used server-side; the site keys render the verification widgets.</p>
+              </div>
+              <div class="pcard-body">
+                <div class="field">
+                  <label for="firebaseApiKey">API key</label>
+                  <input id="firebaseApiKey" type="text" placeholder="leave blank to keep current" autocomplete="off" />
+                </div>
+                <div class="grid-2">
+                  <div class="field"><label for="turnstileSiteKey">Turnstile site key</label><input id="turnstileSiteKey" type="text" placeholder="0x&hellip;" /></div>
+                  <div class="field"><label for="hcaptchaSiteKey">hCaptcha site key</label><input id="hcaptchaSiteKey" type="text" placeholder="xxxxxxxx-&hellip;" /></div>
+                </div>
+              </div>
+            </div>
 
-          <div class="field">
-            <label for="skillSelect">Skill</label>
-            <select id="skillSelect"></select>
-          </div>
-          <div id="skillStatus" class="skill-status">&nbsp;</div>
+            <div class="pcard">
+              <div class="pcard-head">
+                <div class="section-tag">Server &amp; security</div>
+                <h3>Runtime</h3>
+                <p class="desc">Operational settings for this deployment. Changing the port takes effect after a restart.</p>
+              </div>
+              <div class="pcard-body">
+                <div class="grid-2">
+                  <div class="field"><label for="port">Port <span class="label-hint">(restart to apply)</span></label><input id="port" type="number" min="1" max="65535" placeholder="3000" /></div>
+                  <div class="field"><label for="newPassword">New admin password</label><input id="newPassword" type="password" placeholder="leave blank to keep current" autocomplete="new-password" /></div>
+                </div>
+              </div>
+              <div class="pcard-foot">
+                <div class="row-actions"><button id="saveAdvanced" class="btn-primary">Save changes</button></div>
+                <div id="advNotice" class="notice"></div>
+              </div>
+            </div>
 
-          <div class="field">
-            <label for="skillFile">Upload document</label>
-            <input id="skillFile" type="file" accept=".docx,.pdf,.txt,.md,.markdown,.text" />
-          </div>
-          <div class="field">
-            <label for="skillText">&hellip; or paste / edit the contract text</label>
-            <textarea id="skillText" class="tall" placeholder="The contract text the agent will follow for this skill"></textarea>
-          </div>
-          <div class="row-actions">
-            <button id="saveSkill" class="btn-primary">Save contract</button>
-          </div>
-          <div id="skillNotice" class="notice"></div>
-        </div>
-      </section>
-
-      <!-- ===== Advanced ===== -->
-      <section id="tab-advanced" class="panel">
-        <div class="pcard">
-          <div class="section-tag">Platform keys</div>
-          <h3>Defaults &amp; overrides</h3>
-          <p class="desc">Shared across accounts &mdash; change only if needed. The API key is used server-side; the site keys render the verification widgets.</p>
-          <div class="field">
-            <label for="firebaseApiKey">API key</label>
-            <input id="firebaseApiKey" type="text" placeholder="leave blank to keep current" autocomplete="off" />
-          </div>
-          <div class="grid-2">
-            <div class="field"><label for="turnstileSiteKey">Turnstile site key</label><input id="turnstileSiteKey" type="text" placeholder="0x&hellip;" /></div>
-            <div class="field"><label for="hcaptchaSiteKey">hCaptcha site key</label><input id="hcaptchaSiteKey" type="text" placeholder="xxxxxxxx-&hellip;" /></div>
-          </div>
-        </div>
-        <div class="pcard">
-          <div class="section-tag">Server &amp; security</div>
-          <div class="grid-2">
-            <div class="field"><label for="port">Port <span class="label-hint">(restart to apply)</span></label><input id="port" type="number" min="1" max="65535" placeholder="3000" /></div>
-            <div class="field"><label for="newPassword">New admin password</label><input id="newPassword" type="password" placeholder="leave blank to keep current" autocomplete="new-password" /></div>
-          </div>
-          <div class="row-actions">
-            <button id="saveAdvanced" class="btn-primary">Save changes</button>
-          </div>
-          <div id="advNotice" class="notice"></div>
-        </div>
-        <p class="note-quiet">The database connection is set once via the <code>DATABASE_URL</code> environment variable and is not editable here.</p>
-      </section>
-    </main>
-
-    <a class="back-link" href="/">&larr; Back to chat</a>
+            <p class="note-quiet">The database connection is set once via the <code>DATABASE_URL</code> environment variable and is not editable here.</p>
+          </section>
+        </main>
+      </div>
+    </div>
   </div>
   <script src="admin.js"></script>
 </body>
