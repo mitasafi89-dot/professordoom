@@ -130,31 +130,83 @@ modelBtn.addEventListener('click', () => modelMenu.classList.toggle('show'));
 document.addEventListener('click', (e) => { if (!e.target.closest('.model-select')) modelMenu.classList.remove('show'); });
 
 // ---------- conversations ----------
+let ALL_CONVS = [];
+
+function relTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 45) return 'just now';
+  const m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+  const days = Math.floor(h / 24); if (days === 1) return 'yesterday';
+  if (days < 7) return days + 'd ago';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+function bucketOf(ts) {
+  const d = ts ? new Date(ts) : null;
+  if (!d || isNaN(d.getTime())) return 'Earlier';
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const t = d.getTime();
+  if (t >= startToday) return 'Today';
+  if (t >= startToday - 86400000) return 'Yesterday';
+  if (t >= startToday - 6 * 86400000) return 'This week';
+  return 'Earlier';
+}
+function renderConvSkeleton() {
+  convListEl.innerHTML = Array.from({ length: 6 }).map(() =>
+    '<div class="conv-skel"><div class="sk sk-1"></div><div class="sk sk-2"></div></div>').join('');
+}
+
 async function loadConversations() {
   if (!GUMMIE_ID) return;
+  if (!ALL_CONVS.length) renderConvSkeleton();
   let data;
-  try { data = await gl('gummies/' + GUMMIE_ID + '/chat?page_size=24&sort_order=newest'); }
+  try { data = await gl('gummies/' + GUMMIE_ID + '/chat?page_size=50&sort_order=newest'); }
   catch (e) { return; }
-  const items = (data && data.data) || [];
-  convListEl.innerHTML = '<div class="conv-section">Conversations</div>';
+  ALL_CONVS = (data && data.data) || [];
+  renderConvList();
+}
+
+// Render the (optionally filtered, date-grouped) conversation list. The search
+// input is persistent in the DOM, so re-rendering the list never steals focus.
+function renderConvList() {
+  const fi = $('convFilter');
+  const q = (fi ? fi.value : '').trim().toLowerCase();
+  const items = ALL_CONVS.filter((c) => !q || (c.name || '').toLowerCase().includes(q));
+  convListEl.innerHTML = '';
   if (!items.length) {
-    const d = document.createElement('div');
-    d.className = 'conv-section';
-    d.style.color = 'var(--text-faint)';
-    d.textContent = 'No conversations yet';
-    convListEl.appendChild(d);
+    convListEl.innerHTML = '<div class="conv-empty">' + (ALL_CONVS.length ? 'No matches' : 'No conversations yet') + '</div>';
     return;
   }
+  const frag = document.createDocumentFragment();
+  let lastBucket = '';
   items.forEach((c) => {
+    const b = bucketOf(c.created_ts);
+    if (b !== lastBucket) {
+      const lbl = document.createElement('div');
+      lbl.className = 'conv-group-label';
+      lbl.textContent = b;
+      frag.appendChild(lbl);
+      lastBucket = b;
+    }
     const el = document.createElement('button');
-    el.className = 'conv';
-    const when = c.created_ts ? new Date(c.created_ts).toLocaleDateString() : '';
+    el.className = 'conv' + (c.interaction_id === CURRENT_INTERACTION ? ' active' : '');
+    const st = (c.state || '').toLowerCase();
     el.innerHTML =
-      '<div class="title">' + (c.name || 'Untitled') + '</div>' +
-      '<div class="meta"><span class="state">' + (c.state || '') + '</span><span>' + when + '</span></div>';
-    el.addEventListener('click', () => openConversation(c.interaction_id, c.name, el));
-    convListEl.appendChild(el);
+      '<div class="conv-row"><span class="conv-title">' + escH(c.name || 'Untitled') + '</span>' +
+      '<span class="conv-time">' + escH(relTime(c.created_ts)) + '</span></div>' +
+      (c.state ? '<div class="conv-meta"><span class="conv-state ' + escH(st) + '">' + escH(c.state) + '</span></div>' : '');
+    el.addEventListener('click', () => {
+      CURRENT_INTERACTION = c.interaction_id;
+      renderConvList();
+      openConversation(c.interaction_id, c.name, el);
+    });
+    frag.appendChild(el);
   });
+  convListEl.appendChild(frag);
 }
 
 async function openConversation(interactionId, name, el) {
@@ -316,7 +368,71 @@ function setVerified(ok) {
   if (bar) bar.classList.toggle('solved', !!ok);
 }
 
-// ---------- send ----------
+// ---------- send (LIVE streaming over SSE) ----------
+// Build the live "Thinking & steps" + answer HTML from the in-flight stream
+// state, with a status line that reflects what the agent is doing right now.
+function renderLive(bubble, live) {
+  let html = '';
+  if (live.steps.length) {
+    const stepHtml = live.steps.map((s) => s.kind === 'think'
+      ? '<div class="step step-think"><span class="step-ico">💭</span><div class="step-txt">' + escH(s.text) + '</div></div>'
+      : '<div class="step step-tool"><span class="step-ico">🔧</span><div class="step-txt"><span class="tool-cap">' + escH(s.cap) + '</span>' +
+        (s.name ? '<span class="tool-name">' + escH(s.name) + '</span>' : '') +
+        (s.state ? '<span class="tool-state ' + escH(s.state) + '">' + escH(s.state) + '</span>' : '') + '</div></div>'
+    ).join('');
+    html += '<details class="agent-steps" open><summary><span class="steps-label">Thinking &amp; steps</span>' +
+      '<span class="steps-count">' + live.steps.length + '</span></summary><div class="steps-body">' + stepHtml + '</div></details>';
+  }
+  if (live.answer) html += '<div class="answer">' + render(live.answer) + '</div>';
+  if (live.status) html += '<div class="live-status"><span class="live-dot"></span><span>' + escH(live.status) + '</span></div>';
+  bubble.innerHTML = html || '<span class="typing"><span></span><span></span><span></span></span>';
+}
+
+// Interpret one Gumloop frame into the live state (defensive — frame shapes can
+// vary; the authoritative re-render happens on `done`).
+function applyFrame(f, live) {
+  if (!f || typeof f !== 'object') return;
+  const type = f.type || '';
+  // Branch by type FIRST. Reasoning frames also carry a `text` field, so the
+  // answer-text branch must come LAST to avoid leaking reasoning into the answer.
+  if (type === 'reasoning' || (f.reasoning && type !== 'tool_invocation' && !f.toolName)) {
+    const r = f.reasoning || f.text || '';
+    if (r) {
+      const last = live.steps[live.steps.length - 1];
+      if (last && last.kind === 'think') last.text += r; else live.steps.push({ kind: 'think', text: r });
+      live.status = 'Thinking…';
+    }
+    return;
+  }
+  if (type === 'tool_invocation' || f.toolName || f.toolCaption) {
+    const cap = f.toolCaption || f.toolName || 'tool';
+    const name = f.toolName || '';
+    const st = (f.toolCallState || '').toLowerCase();
+    const key = name + '|' + cap;
+    const existing = live.steps.find((s) => s.kind === 'tool' && s.key === key);
+    if (existing) { if (st) existing.state = st; }
+    else live.steps.push({ kind: 'tool', cap, name, state: st, key });
+    live.status = 'Running ' + (name || 'a tool') + '…';
+    return;
+  }
+  if (type === 'step-start') { if (!live.answer) live.status = 'Working…'; return; }
+  // Plain answer text / deltas (only reached when not a reasoning or tool frame).
+  if (typeof f.text === 'string' && f.text) { live.answer += f.text; live.status = 'Writing the response…'; return; }
+  if (typeof f.delta === 'string' && f.delta) { live.answer += f.delta; live.status = 'Writing the response…'; return; }
+}
+
+function parseSSE(chunk) {
+  const lines = chunk.split('\n');
+  let event = 'message', data = '';
+  for (const ln of lines) {
+    if (ln.startsWith(':')) continue;              // heartbeat / comment
+    if (ln.startsWith('event:')) event = ln.slice(6).trim();
+    else if (ln.startsWith('data:')) data += ln.slice(5).trim();
+  }
+  let obj = null; try { obj = data ? JSON.parse(data) : null; } catch {}
+  return { event, obj };
+}
+
 async function send() {
   const text = inputEl.value.trim();
   if (!text || busy) return;
@@ -333,12 +449,15 @@ async function send() {
   if (emptyEl) emptyEl.remove();
   addMessage('user', text);
   inputEl.value = ''; autoGrow();
-  const bubble = addMessage('assistant', '');
-  bubble.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+
+  const bubble = addRichMessage('', SELECTED_MODEL.label);
+  const live = { steps: [], answer: '', status: 'Connecting…' };
+  renderLive(bubble, live);
   threadEl.scrollTop = threadEl.scrollHeight;
 
+  let finished = false;
   try {
-    const r = await fetch('/api/send', {
+    const resp = await fetch('/api/send/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -349,21 +468,47 @@ async function send() {
         skill: SELECTED_SKILL || '',
       }),
     });
-    const txt = await r.text();
-    let data; try { data = JSON.parse(txt); } catch { data = {}; }
-    if (!r.ok) {
-      bubble.innerHTML = render('**Send failed.** ' + (data.error || txt));
+    if (!resp.ok || !resp.body) {
+      const t = await resp.text(); let d = {}; try { d = JSON.parse(t); } catch {}
+      bubble.innerHTML = render('**Send failed.** ' + (d.error || t));
+      finished = true;
     } else {
-      if (data.interaction_id) CURRENT_INTERACTION = data.interaction_id;
-      // Re-render the full turn from the interaction so the reasoning, tool
-      // steps, final answer, and any generated files are all displayed.
-      try { await openConversation(CURRENT_INTERACTION, convNameEl.textContent); }
-      catch { bubble.innerHTML = render(data.reply || '(no text returned)'); }
-      loadConversations();
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      const atBottom = () => threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 120;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const { event, obj } = parseSSE(chunk);
+          const stick = atBottom();
+          if (event === 'start' && obj) {
+            if (obj.interaction_id) CURRENT_INTERACTION = obj.interaction_id;
+            live.status = 'Thinking…'; renderLive(bubble, live);
+          } else if (event === 'frame' && obj) {
+            applyFrame(obj, live); renderLive(bubble, live);
+          } else if (event === 'error' && obj) {
+            live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Error:** ' + (obj.error || 'unknown');
+            renderLive(bubble, live);
+          } else if (event === 'done' && obj) {
+            finished = true;
+            if (obj.parts && obj.parts.length) bubble.innerHTML = renderAssistantParts(obj.parts);
+            else bubble.innerHTML = render(obj.reply || live.answer || '(no text returned)');
+            if (obj.is_new) { convNameEl.textContent = convNameEl.textContent || 'Conversation'; }
+            loadConversations();
+          }
+          if (stick) threadEl.scrollTop = threadEl.scrollHeight;
+        }
+      }
     }
   } catch (e) {
-    bubble.innerHTML = render('**Error:** ' + e.message);
+    if (!finished) { live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Error:** ' + e.message; renderLive(bubble, live); }
   } finally {
+    if (!finished && !live.answer && !live.steps.length) bubble.innerHTML = render('**No response received.** The connection closed before any output.');
     resetCaptcha(); // tokens are single-use — force a fresh solve per message
     threadEl.scrollTop = threadEl.scrollHeight;
     busy = false; sendBtn.disabled = false; inputEl.focus();
@@ -386,7 +531,7 @@ sendBtn.addEventListener('click', send);
 $('newChat').addEventListener('click', () => {
   CURRENT_INTERACTION = null;
   convNameEl.textContent = 'New chat';
-  [...convListEl.querySelectorAll('.conv')].forEach((e) => e.classList.remove('active'));
+  renderConvList();
   threadInner.innerHTML = '<div class="empty"><div class="big">New conversation</div><p>Type below to start' + (SELECTED_SKILL ? ' under the <strong>' + (skillLabel(SELECTED_SKILL) || 'selected') + '</strong> contract' : '') + '. Sent using the selected model.</p></div>';
   inputEl.focus();
 });
@@ -420,6 +565,12 @@ if (skillSelectEl) {
 }
 
 // ---------- boot ----------
+// Live filtering of the conversation list (input is persistent, so focus is kept).
+(function wireConvFilter() {
+  const fi = $('convFilter');
+  if (fi) fi.addEventListener('input', () => renderConvList());
+})();
+
 (async function init() {
   // Model picker is static metadata (API with models.json fallback) — always
   // populate it so the dropdown works regardless of session/verification state.
