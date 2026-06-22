@@ -27,8 +27,11 @@ const { Pool } = require("pg");
 const app = express();
 app.use(express.json({ limit: "8mb" }));
 
-const API = "https://api.gumloop.com";
-const WS_URL = "wss://ws.gumloop.com/ws/gummies";
+// Gumloop endpoints. Overridable via env for self-hosting and for E2E tests
+// (a mock Gumloop server can stand in for all three).
+const API = process.env.GUMLOOP_API_URL || "https://api.gumloop.com";
+const WS_URL = process.env.GUMLOOP_WS_URL || "wss://ws.gumloop.com/ws/gummies";
+const TOKEN_URL = process.env.FIREBASE_TOKEN_URL || "https://securetoken.googleapis.com/v1/token";
 const ORIGIN = "https://www.gumloop.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
@@ -317,7 +320,7 @@ async function mintIdToken(overrideToken, overrideApiKey) {
   const now = Date.now();
   if (!usingOverride && state.idToken && state.idTokenExp - now > 120000) return { idToken: state.idToken, uid: state.uid };
   const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
-  const r = await fetch("https://securetoken.googleapis.com/v1/token?key=" + apiKey, {
+  const r = await fetch(TOKEN_URL + "?key=" + apiKey, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body });
   const d = await r.json();
   if (!d.id_token) throw new Error("Token refresh failed: " + JSON.stringify(d).slice(0, 200));
@@ -705,6 +708,119 @@ app.post("/api/send", async (req, res) => {
   logMessage(iid, "assistant", reply, null);
 
   res.json({ interaction_id: iid, is_new: isNew, reply: reply || "(no text returned)", frames });
+});
+
+// ===================== Send (STREAMING, Server-Sent Events) =====================
+// Streams the agent's turn to the browser LIVE. Every Gumloop WS frame is
+// forwarded as an SSE `frame` event so reasoning, tool steps, and text deltas
+// appear as they happen — instead of the browser blocking until the whole turn
+// finishes. A final `done` event carries the authoritative REST parts[] for an
+// exact re-render. The conversation (interaction_id) persists across turns just
+// as before; this only changes HOW the turn is delivered.
+app.post("/api/send/stream", async (req, res) => {
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill } = req.body || {};
+  if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
+  if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
+  if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
+  if (!state.gummieId) return res.status(400).json({ error: "No gummie selected." });
+
+  let idToken, uid;
+  try { ({ idToken, uid } = await mintIdToken()); }
+  catch (e) { return res.status(401).json({ error: e.message }); }
+
+  // SSE headers — open a persistent, unbuffered event stream to the browser.
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no", // disable proxy buffering (nginx) so frames flush live
+  });
+  const sse = (event, data) => { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {} };
+  const heartbeat = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 15000);
+
+  const iid = (interaction_id && interaction_id.trim()) || genId();
+  const isNew = !interaction_id;
+  sse("start", { interaction_id: iid, is_new: isNew });
+
+  // On a NEW conversation, prepend the selected skill's working contract.
+  let outgoing = message;
+  const sk = skill && state.skills[skill];
+  if (isNew && sk && sk.contract) {
+    outgoing =
+      `You are operating under a binding WORKING CONTRACT for this task — "${sk.label}". ` +
+      `Treat every rule in it as authoritative for the entire conversation.\n\n` +
+      `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
+      `User's request:\n${message}`;
+  }
+
+  const frame = {
+    type: "start",
+    payload: {
+      id_token: idToken,
+      context: {
+        gummie_id: state.gummieId, interaction_id: iid,
+        message: { id: "msg_" + genId(), timestamp: new Date().toISOString(),
+                   content: outgoing, role: "user", creator_id: uid },
+        type: "chat", is_incognito: false,
+      },
+      captcha_token: hcaptcha_token || "", captcha_provider: "hcaptcha", turnstile_token,
+    },
+  };
+
+  let streamText = "";
+  let wsError = null;
+  let closed = false;
+  const ws = new WebSocket(WS_URL, { origin: ORIGIN, headers: { "user-agent": UA } });
+
+  const finishUp = async () => {
+    if (closed) return; closed = true;
+    clearInterval(heartbeat);
+    clearTimeout(timer);
+    try { ws.close(); } catch {}
+    // REST reconciliation — the authoritative final parts for an exact re-render.
+    let reply = streamText.trim();
+    let parts = null;
+    try {
+      await new Promise((r) => setTimeout(r, 600));
+      const rr = await fetch(API + "/gummie_interactions/" + iid, { headers: restHeaders(idToken, uid) });
+      if (rr.ok) {
+        const d = await rr.json();
+        const msgs = (d.interaction && d.interaction.messages) || [];
+        const last = [...msgs].reverse().find((m) => m.role === "assistant");
+        if (last) {
+          parts = last.parts || null;
+          const t = (last.parts || []).filter((p) => p.type === "text" && p.text).map((p) => p.text).join("\n");
+          if (t) reply = t;
+        }
+      }
+    } catch { /* keep streamText */ }
+    logMessage(iid, "user", message, null);
+    logMessage(iid, "assistant", reply, null);
+    if (wsError) sse("error", { error: wsError });
+    sse("done", { interaction_id: iid, is_new: isNew, reply: reply || "(no text returned)", parts });
+    try { res.end(); } catch {}
+  };
+
+  const timer = setTimeout(finishUp, 150000);
+  ws.on("open", () => ws.send(JSON.stringify(frame)));
+  ws.on("message", (data) => {
+    const s = data.toString();
+    let o = null; try { o = JSON.parse(s); } catch {}
+    if (o) {
+      if (o.type === "error") { wsError = o.errorMessage || o.error || "error"; return finishUp(); }
+      if (typeof o.text === "string") streamText += o.text;
+      else if (typeof o.delta === "string") streamText += o.delta;
+      sse("frame", o);
+      // Terminate only on the END OF THE WHOLE TURN — never on per-step frames.
+      if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) return finishUp();
+    } else {
+      sse("frame", { raw: s.slice(0, 2000) });
+    }
+  });
+  ws.on("error", (e) => { wsError = wsError || e.message; finishUp(); });
+  ws.on("close", () => finishUp());
+  // If the browser navigates away or hits Stop, tear the upstream WS down.
+  req.on("close", () => { if (!closed) { closed = true; clearInterval(heartbeat); clearTimeout(timer); try { ws.close(); } catch {} } });
 });
 
 // Admin entry point.

@@ -1,0 +1,85 @@
+# ProfessorDoom — System Assessment & Phased Plan
+
+A rigorous, first-principles review of the current system, what works, what is
+partial, what is missing, and the phased plan to address every issue.
+
+## 1. How the underlying system actually works (mirrored)
+
+ProfessorDoom is a custom UI in front of a **Gumloop agent session**. There is no
+private API — the server reverse-implements the browser's own protocol:
+
+- **Auth**: a Firebase *refresh token* (project `agenthub-dev`) is held
+  server-side. The server mints short-lived *id_tokens* (60 min, RS256) from it
+  via `POST securetoken.googleapis.com/v1/token`.
+- **Reads (REST)**: `api.gumloop.com` with `Authorization: Bearer <id_token>` +
+  `x-auth-key: <uid>` — models, agents, conversation list, and the full message
+  thread (`/gummie_interactions/{id}` → `interaction.messages[]`, each with
+  `parts[]` of type `reasoning | tool_invocation | text | file`).
+- **Send (WebSocket)**: `wss://ws.gumloop.com/ws/gummies`. The client sends one
+  `start` frame carrying the id_token, the gummie/interaction ids, the message,
+  and **both** captcha tokens. The server streams frames back:
+  `interaction-ready → step-start → (reasoning / tool / text deltas) → finish`.
+- **The captcha wall**: EVERY message (incl. follow-ups) needs a browser-solved
+  Cloudflare Turnstile token **and** an hCaptcha token. They are single-use and
+  short-lived. **There is no automated/captcha-free send path** — this is a hard
+  constraint we must design around, not remove.
+- **Persistence**: Postgres/Supabase (`pd_config`, `pd_messages`, `pd_skills`) is
+  the source of truth; env vars only seed first boot. (Plus a local-file fallback
+  added in the previous milestone so settings survive a DB outage.)
+
+## 2. Status ledger
+
+### Done
+- Server-side token minting, REST proxy, conversation/thread read & render.
+- Durable config + skills persistence (Supabase + local-file fallback).
+- Skills fetched live from Supabase; contract auto-injected on a NEW conversation.
+- Optional/!off-by-default admin password; one-paste autonomous setup.
+- Static rendering of a finished turn's `parts[]` (thinking, tool chips, files).
+
+### Partial
+- **Turn delivery**: works, but is BLOCKING — the browser waits for the whole
+  turn then renders it at once. Frames are streamed to the server and discarded.
+- **Conversation sidebar**: functional list, but flat — no grouping, relative
+  time, search, active/loading states, or refined visual design.
+- **Contract injection**: only on the first message of a NEW conversation.
+
+### Missing
+- **Live streaming to the browser** (the core of both reported issues).
+- **Live background activity**: thinking, current tool/step, loading, streaming
+  text — none of it is surfaced while the turn is in flight.
+- **Continuity affordances**: status line, stop/cancel, reconnect on drop.
+- **Automated E2E coverage** of the send/stream pipeline.
+
+## 3. Why "the conversation ends after every message"
+
+It is the blocking architecture, not a lost conversation. `interaction_id` is
+correctly reused, so context persists. But the UX is: send → static typing dot
+for up to 150 s → whole turn appears → re-solve captcha. Nothing live happens in
+between, so each message reads as an isolated, terminating round-trip.
+
+**Fix:** stream the turn. Forward every Gumloop WS frame to the browser over
+Server-Sent Events; render reasoning/tool/text live; reconcile against the
+authoritative REST `parts[]` at the end. Keep `interaction_id` reuse for context.
+
+## 4. Phased plan
+
+- **Phase 1 — Live streaming backend.** New `POST /api/send/stream` (SSE). Opens
+  the Gumloop WS, forwards each frame as an SSE `frame` event, then emits a final
+  `done` event carrying the authoritative REST `parts[]`. Heartbeats, client-
+  disconnect teardown, 150 s safety timeout, graceful error events. Gumloop
+  endpoints (`API`, `WS_URL`, token URL) made env-overridable for self-hosting
+  and testing. *(addresses: conversation continuity + background activity)*
+- **Phase 2 — Live activity UI.** Rewrite the composer send path to consume the
+  SSE stream: a live "Thinking & steps" panel that fills in as frames arrive, a
+  streaming answer, and a status line (Thinking… / Running <tool>… / Writing…).
+  Authoritative re-render on `done`. *(addresses: background visibility)*
+- **Phase 3 — Conversation sidebar redesign.** Date grouping (Today/Yesterday/
+  Earlier), relative timestamps, active + hover states, live filter/search,
+  loading skeletons, refined visual design consistent with the brand.
+- **Phase 4 — E2E test harness.** A mock Gumloop server (token + REST + WS)
+  emitting realistic frames, driven through our server and a headless browser, to
+  prove the full stream → render pipeline. Plus endpoint smoke tests.
+- **Phase 5 — Hardening & polish.** Stop/cancel a turn, reconnect on drop,
+  optional skill re-injection on demand, accessibility, and final review.
+
+Each phase is committed to `main` before the next begins.
