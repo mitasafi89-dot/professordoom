@@ -126,6 +126,24 @@
           <section id="tab-advanced" class="panel">
             <div class="pcard">
               <div class="pcard-head">
+                <div class="section-tag">Supabase</div>
+                <h3>Database connection</h3>
+                <p class="desc">Your skills (working contracts) and settings live in Supabase/Postgres. This server must be connected to that database to load them &mdash; without it, every skill shows &ldquo;no contract uploaded&rdquo; even though the contract is safely stored. Paste your connection string to connect now; it&rsquo;s saved and reused on restart.</p>
+              </div>
+              <div class="pcard-body">
+                <div class="field">
+                  <label for="dbUrl">Connection string</label>
+                  <input id="dbUrl" type="password" placeholder="postgresql://postgres:&hellip;@&hellip;.supabase.co:5432/postgres" autocomplete="off" />
+                </div>
+              </div>
+              <div class="pcard-foot">
+                <div class="row-actions"><button id="connectDbBtn" class="btn-primary">Connect &amp; load skills</button></div>
+                <div id="dbNotice" class="notice"></div>
+              </div>
+            </div>
+
+            <div class="pcard">
+              <div class="pcard-head">
                 <div class="section-tag">Platform keys</div>
                 <h3>Defaults &amp; overrides</h3>
                 <p class="desc">Shared across accounts &mdash; change only if needed. The API key is used server-side; the site keys render the verification widgets.</p>

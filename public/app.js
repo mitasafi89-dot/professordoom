@@ -29,6 +29,7 @@ let busy = false;
 let currentAbort = null;   // AbortController for the in-flight streaming turn
 let REINJECT_NEXT = false; // re-apply the working contract on the next message
 let SELECTED_SKILL = localStorage.getItem('pd_skill') || '';
+let DB_CONNECTED = true; // whether the server is connected to Supabase (drives an honest skill note)
 // ---- Auto-continue: keep the agent working turn-after-turn without the user
 // typing "continue". Persisted; capped for safety so it can never run away.
 let AUTO_CONTINUE = localStorage.getItem('pd_autocontinue') === '1';
@@ -680,18 +681,28 @@ function skillLabel(slug) { const s = SKILLS.find((x) => x.slug === slug); retur
 function updateSkillNote() {
   if (!skillNoteEl) return;
   const s = SKILLS.find((x) => x.slug === SELECTED_SKILL);
-  if (!SELECTED_SKILL) { skillNoteEl.textContent = ''; return; }
+  if (!SELECTED_SKILL) { skillNoteEl.textContent = ''; skillNoteEl.className = 'skill-note'; return; }
+  // If the DB is not connected the server can't read stored contracts — say so
+  // instead of the misleading "no contract uploaded yet".
+  if (!DB_CONNECTED && !(s && s.hasContract)) {
+    skillNoteEl.textContent = '· database not connected — contracts can\u2019t load (set it in /admin → Advanced)';
+    skillNoteEl.className = 'skill-note warn';
+    return;
+  }
   if (REINJECT_NEXT && s && s.hasContract) {
     skillNoteEl.textContent = '· contract will be applied on your next message';
+    skillNoteEl.className = 'skill-note';
     return;
   }
   skillNoteEl.textContent = (s && s.hasContract) ? '· contract active' : '· no contract uploaded yet';
+  skillNoteEl.className = (s && s.hasContract) ? 'skill-note' : 'skill-note warn';
 }
 async function loadSkills() {
   if (!skillSelectEl) return;
   try {
-    const { skills } = await (await fetch('/api/skills')).json();
-    SKILLS = skills || [];
+    const data = await (await fetch('/api/skills')).json();
+    SKILLS = data.skills || [];
+    if (typeof data.dbConnected === 'boolean') DB_CONNECTED = data.dbConnected;
     skillSelectEl.innerHTML = '<option value="">Normal chat (no skill)</option>' +
       SKILLS.map((s) => '<option value="' + s.slug + '"' + (s.slug === SELECTED_SKILL ? ' selected' : '') + '>' + s.label + '</option>').join('');
     updateSkillNote();

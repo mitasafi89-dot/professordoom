@@ -545,8 +545,30 @@ app.post("/api/admin/blob", async (req, res) => {
 // ===================== Skills (working contracts) =====================
 // Skills are fetched live from Supabase (see getSkillsList).
 app.get("/api/skills", async (req, res) => {
-  try { res.json({ skills: await getSkillsList() }); }
+  // dbConnected lets the chat UI tell "DB not connected" apart from "no contract
+  // uploaded" — otherwise a disconnected DB looks like a missing contract.
+  try { res.json({ skills: await getSkillsList(), dbConnected: state.dbConnected }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Connect this server to Supabase/Postgres at RUNTIME (no shell/env needed) and
+// persist the connection string so it survives restarts. This is what makes the
+// stored skills/contracts actually load — without a connection the server falls
+// back to empty in-memory defaults and every skill shows "no contract uploaded".
+app.post("/api/admin/database", async (req, res) => {
+  const { password, url } = req.body || {};
+  if (!checkPassword(password)) return res.status(401).json({ error: "Invalid admin password." });
+  if (!url || !url.trim()) return res.status(400).json({ error: "Connection string is required." });
+  try {
+    await connectDb(url.trim());          // sets state.dbUrl + state.dbConnected, loads config + skills
+    saveStateToFile();                    // persist so the connection survives a restart
+    const skills = await getSkillsList();
+    const withContract = skills.filter((s) => s.hasContract).length;
+    res.json({ ok: true, dbConnected: state.dbConnected, skillCount: skills.length, withContract, skills });
+  } catch (e) {
+    state.dbConnected = false;
+    res.status(400).json({ error: "Could not connect: " + e.message });
+  }
 });
 
 app.post("/api/admin/skill/get", async (req, res) => {

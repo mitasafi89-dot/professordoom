@@ -656,3 +656,6 @@ button { font-family: inherit; }
 .auto-note.done { color: var(--accent, #4f46e5); font-weight: 600; }
 /* Subtle marker for an auto-sent "continue" user bubble */
 .msg.auto-msg .bubble { opacity: .8; font-style: italic; }
+
+/* Honest skill-note state when DB is disconnected / contract missing */
+.skill-note.warn { color: #b45309; }

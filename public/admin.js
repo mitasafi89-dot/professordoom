@@ -244,6 +244,20 @@ $("verify").addEventListener("click", verify);
 $("clear").addEventListener("click", clearSession);
 $("skillSelect").addEventListener("change", onSkillChange);
 $("saveSkill").addEventListener("click", saveSkill);
+// ---------- connect Supabase at runtime ----------
+async function connectDatabase() {
+  const url = ($("dbUrl").value || "").trim();
+  if (!url) return notify("Paste your Supabase connection string first.", false, "dbNotice");
+  notify("Connecting\u2026", true, "dbNotice");
+  const { ok, data } = await post("/api/admin/database", { password: $("password") ? $("password").value : "", url });
+  if (!ok) return notify(data.error || "Could not connect.", false, "dbNotice");
+  notify(`Connected \u2014 ${data.skillCount} skill(s), ${data.withContract} with a contract loaded.`, true, "dbNotice");
+  $("dbUrl").value = "";
+  refreshStatus();
+  loadSkills();
+}
+$("connectDbBtn").addEventListener("click", connectDatabase);
+
 $("password").addEventListener("change", onSkillChange);
 refreshStatus();
 loadConfig();
