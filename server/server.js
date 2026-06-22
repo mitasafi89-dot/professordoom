@@ -809,6 +809,9 @@ app.post("/api/send/stream", async (req, res) => {
   let streamText = "";
   let wsError = null;
   let closed = false;
+  let closeInfo = null;     // {code, reason} from the upstream WS close
+  let restStatus = 0;       // HTTP status of the REST reconciliation read
+  let sawAnyFrame = false;  // did Gumloop send us ANY frame at all?
   const ws = new WebSocket(WS_URL, { origin: ORIGIN, headers: { "user-agent": UA } });
 
   const finishUp = async () => {
@@ -822,6 +825,7 @@ app.post("/api/send/stream", async (req, res) => {
     try {
       await new Promise((r) => setTimeout(r, 600));
       const rr = await fetch(API + "/gummie_interactions/" + iid, { headers: restHeaders(idToken, uid) });
+      restStatus = rr.status;
       if (rr.ok) {
         const d = await rr.json();
         const msgs = (d.interaction && d.interaction.messages) || [];
@@ -837,18 +841,47 @@ app.post("/api/send/stream", async (req, res) => {
     logMessage(iid, "assistant", reply, null);
     const pending = Array.isArray(parts) && parts.some((p) => p && p.type === "tool_invocation" && p.toolName === "ask_human_input");
     const complete = /\u27e6TASK_COMPLETE\u27e7/.test(reply);
+    const hasParts = Array.isArray(parts) && parts.length > 0;
+    const noOutput = !hasParts && !reply;
+
+    // Turn the silent "(no text returned)" into an actionable diagnostic so the
+    // real failure (auth / wrong Agent ID / localhost captcha) is visible.
+    let diagnostic = "";
+    if (noOutput) {
+      if (wsError) {
+        diagnostic = "Upstream rejected the message: " + wsError +
+          (/captcha|turnstile|hcaptcha/i.test(wsError) ? " \u2014 verification tokens are NOT valid on localhost; serve the app from a real host/domain." : "");
+      } else if (restStatus === 401 || restStatus === 403) {
+        diagnostic = "No output, and the conversation could not be read back (HTTP " + restStatus +
+          "). The configured Agent ID likely isn\u2019t accessible by the connected account, or the session token is invalid/expired. In /admin, re-paste your auth blob and confirm the Agent ID belongs to that same account.";
+      } else if (closeInfo && closeInfo.code === 1008) {
+        diagnostic = "The server rejected the message (close 1008) \u2014 almost always an invalid verification token. hCaptcha/Turnstile do not issue valid tokens on localhost; serve the app from a real host/domain and retry.";
+      } else if (closeInfo && closeInfo.code && closeInfo.code !== 1000) {
+        diagnostic = "The connection closed (code " + closeInfo.code + (closeInfo.reason ? ": " + closeInfo.reason : "") + ") before the agent produced any text.";
+      } else if (!sawAnyFrame) {
+        diagnostic = "The agent stream produced no frames at all. Check the session (Agent ID + auth blob) in /admin and that the app is served from a non-localhost host.";
+      } else {
+        diagnostic = "The agent produced no text for this turn. If it repeats, re-check the session in /admin and serve from a non-localhost host so verification tokens are accepted.";
+      }
+    }
     if (wsError) sse("error", { error: wsError });
-    sse("done", { interaction_id: iid, is_new: isNew, reply: reply || "(no text returned)", parts, pending, complete });
+    else if (noOutput) sse("error", { error: diagnostic });
+    sse("done", { interaction_id: iid, is_new: isNew, reply: reply || diagnostic || "(no text returned)", parts, pending, complete, diagnostic });
     try { res.end(); } catch {}
   };
 
   const timer = setTimeout(finishUp, 150000);
   ws.on("open", () => ws.send(JSON.stringify(frame)));
   ws.on("message", (data) => {
+    sawAnyFrame = true;
     const s = data.toString();
     let o = null; try { o = JSON.parse(s); } catch {}
     if (o) {
-      if (o.type === "error") { wsError = o.errorMessage || o.error || "error"; return finishUp(); }
+      // Gumloop signals failures in a few shapes \u2014 catch them all.
+      if (o.type === "error" || o.type === "interaction-error" || o.error || o.errorMessage) {
+        wsError = o.errorMessage || o.error || (typeof o.message === "string" ? o.message : "") || "upstream error";
+        return finishUp();
+      }
       if (typeof o.text === "string") streamText += o.text;
       else if (typeof o.delta === "string") streamText += o.delta;
       sse("frame", o);
@@ -859,7 +892,7 @@ app.post("/api/send/stream", async (req, res) => {
     }
   });
   ws.on("error", (e) => { wsError = wsError || e.message; finishUp(); });
-  ws.on("close", () => finishUp());
+  ws.on("close", (code, reason) => { closeInfo = { code, reason: (reason && reason.toString) ? reason.toString() : "" }; finishUp(); });
   // If the browser navigates away or hits Stop, tear the upstream WS down.
   req.on("close", () => { if (!closed) { closed = true; clearInterval(heartbeat); clearTimeout(timer); try { ws.close(); } catch {} } });
 });
