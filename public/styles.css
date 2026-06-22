@@ -877,3 +877,42 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
   transition: background .15s ease, color .15s ease;
 }
 .attach-chip .ac-rm:hover { background: var(--red-soft); color: var(--red); }
+
+
+/* ============================================================
+   Admin console — ChatGPT-style settings refinement
+   ============================================================ */
+.admin-shell { max-width: 1100px; padding-top: 28px; }
+.admin-top { margin-bottom: 24px; padding-bottom: 18px; }
+.admin-top .sub { color: var(--text-faint); }
+.admin-layout { grid-template-columns: 240px 1fr; gap: 34px; }
+
+/* Settings-style tab nav: neutral rounded highlight, no accent bar */
+.admin-tabs .tab { font-weight: 600; color: var(--text-dim); padding: 9px 12px; border-radius: 10px; }
+.admin-tabs .tab svg { width: 17px; height: 17px; opacity: .9; }
+.admin-tabs .tab:hover { background: var(--surface-3); color: var(--ink); }
+.admin-tabs .tab.active { background: var(--surface-3); color: var(--ink); box-shadow: none; }
+.tab.active svg { color: var(--brand); }
+.side-back {
+  color: var(--text-dim); font-weight: 600; padding: 8px 12px; border-radius: 10px;
+  display: inline-block; transition: background .15s ease, color .15s ease;
+}
+.side-back:hover { background: var(--surface-3); color: var(--ink); }
+
+/* Calmer cards — lighter shadow, larger radius, flatter footer */
+.pcard { border-radius: var(--radius); box-shadow: var(--shadow-xs); }
+.pcard-head { padding: 24px 26px 0; }
+.pcard-foot { background: var(--surface); }
+
+/* Subtle neutral section eyebrow (drop the loud filled brand pill) */
+.section-tag {
+  background: transparent; border: none; color: var(--text-faint);
+  padding: 0; margin-bottom: 10px; font-size: 11px; letter-spacing: .09em;
+}
+
+/* Cohesive single-accent buttons — retire the gold/brown mix */
+.btn-gold { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn-gold:hover { background: var(--brand-600); border-color: var(--brand-600); }
+
+/* Status chips a touch rounder */
+.admin-chips .chip { border-radius: 999px; }
