@@ -41,6 +41,16 @@
       <button id="clear" class="btn-primary" style="background:transparent;border:1px solid var(--border);margin-top:10px;color:var(--text-dim)">Clear stored session</button>
       <div id="notice" class="notice"></div>
 
+      <h2 style="margin-top:30px">Database</h2>
+      <p class="lead">Paste a <strong>Postgres connection string</strong>. ProfessorDoom connects, auto-creates its tables, persists your session config across restarts, and logs conversations. Held server-side only.</p>
+      <div id="dbStatus" class="statusline">Database: checking…</div>
+      <div class="field">
+        <label for="dbUrl">Connection string <span class="label-hint">(postgres://user:pass@host:5432/dbname)</span></label>
+        <textarea id="dbUrl" placeholder="postgresql://user:password@host:5432/database?sslmode=require"></textarea>
+      </div>
+      <button id="connectDb" class="btn-primary">Connect database</button>
+      <div id="dbNotice" class="notice"></div>
+
       <div class="warn">
         Refresh tokens are long-lived but can be revoked by signing out of Gumloop. Sending each message still requires solving the in-app bot-verification widgets (Cloudflare Turnstile + hCaptcha) — Gumloop enforces this server-side and it cannot be automated. Change the default admin password via <code>ADMIN_PASSWORD</code> before deploying.
       </div>

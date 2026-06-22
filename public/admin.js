@@ -11,9 +11,32 @@ async function refreshStatus() {
       ? 'Status: <strong style="color:#7ee787">configured</strong> · gummie <code>' + (s.gummieId || '—') + '</code>'
       : 'Status: <strong style="color:#ff9aa0">not configured</strong> — no refresh token set.';
     if (s.gummieId) $('gummieId').placeholder = s.gummieId;
+    $('dbStatus').innerHTML = s.dbConnected
+      ? 'Database: <strong style="color:#7ee787">connected</strong>'
+      : 'Database: <strong style="color:#ffcf7a">not connected</strong> — config is in-memory only.';
   } catch {
     statusline.textContent = 'Status: server offline.';
   }
+}
+
+function dbNotify(msg, ok) {
+  const el = $('dbNotice');
+  el.textContent = msg; el.className = 'notice ' + (ok ? 'ok' : 'err');
+}
+
+async function connectDb() {
+  const password = $('password').value;
+  if (!password) return dbNotify('Enter the admin password.', false);
+  const dbUrl = $('dbUrl').value.trim();
+  if (!dbUrl) return dbNotify('Paste a connection string.', false);
+  $('connectDb').disabled = true;
+  dbNotify('Connecting…', true);
+  try {
+    const { ok, data } = await post('/api/admin/db', { password, dbUrl });
+    if (!ok) dbNotify(data.error || 'Connection failed.', false);
+    else { dbNotify('✓ Connected. ' + (data.messageCount ?? 0) + ' messages logged. Config persisted.', true); $('dbUrl').value = ''; refreshStatus(); }
+  } catch { dbNotify('Could not reach the server.', false); }
+  finally { $('connectDb').disabled = false; }
 }
 
 function notify(msg, ok) {
@@ -64,4 +87,5 @@ async function clearSession() {
 $('save').addEventListener('click', save);
 $('verify').addEventListener('click', verify);
 $('clear').addEventListener('click', clearSession);
+$('connectDb').addEventListener('click', connectDb);
 refreshStatus();
