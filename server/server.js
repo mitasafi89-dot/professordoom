@@ -205,18 +205,25 @@ async function logMessage(interactionId, role, content, model) {
 }
 
 // ===================== Firebase token minting =====================
-async function mintIdToken() {
-  if (!state.refreshToken) throw new Error("No refresh token configured.");
+async function mintIdToken(overrideToken, overrideApiKey) {
+  const refreshToken = (overrideToken && overrideToken.trim()) || state.refreshToken;
+  const apiKey = (overrideApiKey && overrideApiKey.trim()) || state.firebaseApiKey;
+  // An ad-hoc token (e.g. from the admin "Detect" button, before Save) must never
+  // be cached into or read from the persisted session state.
+  const usingOverride = Boolean(overrideToken && overrideToken.trim() && overrideToken.trim() !== state.refreshToken);
+  if (!refreshToken) throw new Error("No refresh token configured.");
   const now = Date.now();
-  if (state.idToken && state.idTokenExp - now > 120000) return { idToken: state.idToken, uid: state.uid };
-  const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: state.refreshToken });
-  const r = await fetch("https://securetoken.googleapis.com/v1/token?key=" + state.firebaseApiKey, {
+  if (!usingOverride && state.idToken && state.idTokenExp - now > 120000) return { idToken: state.idToken, uid: state.uid };
+  const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
+  const r = await fetch("https://securetoken.googleapis.com/v1/token?key=" + apiKey, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body });
   const d = await r.json();
   if (!d.id_token) throw new Error("Token refresh failed: " + JSON.stringify(d).slice(0, 200));
-  state.idToken = d.id_token; state.uid = d.user_id;
-  state.idTokenExp = now + parseInt(d.expires_in || "3600", 10) * 1000;
-  return { idToken: state.idToken, uid: state.uid };
+  if (!usingOverride) {
+    state.idToken = d.id_token; state.uid = d.user_id;
+    state.idTokenExp = now + parseInt(d.expires_in || "3600", 10) * 1000;
+  }
+  return { idToken: d.id_token, uid: d.user_id };
 }
 
 function restHeaders(idToken, uid) {
@@ -303,11 +310,14 @@ app.post("/api/admin/verify", async (req, res) => {
 
 // List the account's agents so the admin can pick one instead of hunting for the ID.
 app.post("/api/admin/agents", async (req, res) => {
-  const { password } = req.body || {};
+  const { password, refreshToken, firebaseApiKey } = req.body || {};
   if (!checkPassword(password)) return res.status(401).json({ error: "Invalid admin password." });
-  if (!state.refreshToken) return res.status(400).json({ error: "Set a refresh token first, then detect agents." });
+  // Permit detecting with a freshly-extracted token that hasn't been saved yet,
+  // falling back to the persisted session token. This handler never persists.
+  const rt = (typeof refreshToken === "string" && refreshToken.trim()) || state.refreshToken;
+  if (!rt) return res.status(400).json({ error: "Set a refresh token first, then detect agents." });
   try {
-    const { idToken, uid } = await mintIdToken();
+    const { idToken, uid } = await mintIdToken(rt, firebaseApiKey);
     const r = await fetch(API + "/gummies", { headers: restHeaders(idToken, uid) });
     const text = await r.text();
     if (!r.ok) return res.status(502).json({ error: "Upstream " + r.status + ": " + text.slice(0, 200) });

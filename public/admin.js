@@ -112,7 +112,9 @@ async function detectAgents() {
   $("detectAgents").disabled = true;
   notify("Detecting…", true, "agentNotice");
   try {
-    const { ok, data } = await post("/api/admin/agents", { password });
+    const refreshToken = $("refreshToken").value.trim();
+    const firebaseApiKey = $("firebaseApiKey").value.trim();
+    const { ok, data } = await post("/api/admin/agents", { password, refreshToken, firebaseApiKey });
     if (!ok) return notify(data.error || "Could not detect agents.", false, "agentNotice");
     const agents = data.agents || [];
     if (!agents.length) return notify("No agents found — enter the Agent ID manually.", false, "agentNotice");
