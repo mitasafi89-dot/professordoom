@@ -787,3 +787,27 @@ if (skillSelectEl) {
   }
   setInterval(refreshStatus, 20000);
 })();
+
+
+// ---------- sidebar collapse / mobile drawer ----------
+(function () {
+  const mqMobile = window.matchMedia('(max-width: 860px)');
+  const toggleBtn = document.getElementById('sidebarToggle');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const closeDrawer = () => document.body.classList.remove('sidebar-open');
+
+  if (toggleBtn) toggleBtn.addEventListener('click', () => {
+    if (mqMobile.matches) document.body.classList.toggle('sidebar-open');
+    else document.body.classList.toggle('sidebar-collapsed');
+  });
+  if (backdrop) backdrop.addEventListener('click', closeDrawer);
+  if (typeof convListEl !== 'undefined' && convListEl) {
+    convListEl.addEventListener('click', (e) => {
+      if (mqMobile.matches && e.target.closest('.conv')) closeDrawer();
+    });
+  }
+  const newChatBtn = document.getElementById('newChat');
+  if (newChatBtn) newChatBtn.addEventListener('click', () => { if (mqMobile.matches) closeDrawer(); });
+  mqMobile.addEventListener('change', closeDrawer); // reset drawer when crossing breakpoint
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+})();
