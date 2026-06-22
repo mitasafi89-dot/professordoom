@@ -19,6 +19,7 @@
 
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
 const crypto = require("crypto");
 const WebSocket = require("ws");
 const { Pool } = require("pg");
@@ -50,7 +51,11 @@ const state = {
   idTokenExp: 0,
   dbUrl: process.env.DATABASE_URL || "",
   dbConnected: false,
-  adminPassword: process.env.ADMIN_PASSWORD || "Create1#",
+  // Admin password is OPTIONAL. When empty, the admin dashboard is open and no
+  // password is ever requested (the autonomous default). It only existed to stop
+  // a random visitor to /admin from changing your Gumloop session; set one via
+  // /admin (or ADMIN_PASSWORD) only if this instance is publicly reachable.
+  adminPassword: process.env.ADMIN_PASSWORD || "",
   firebaseApiKey: process.env.FIREBASE_API_KEY || DEFAULT_FIREBASE_API_KEY,
   turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || DEFAULT_TURNSTILE_SITE_KEY,
   hcaptchaSiteKey: process.env.HCAPTCHA_SITE_KEY || DEFAULT_HCAPTCHA_SITE_KEY,
@@ -67,8 +72,16 @@ const DEFAULT_SKILLS = [
 state.skills = {};
 DEFAULT_SKILLS.forEach((s) => { state.skills[s.slug] = { slug: s.slug, label: s.label, filename: "", contract: "" }; });
 
+// Is an admin password actually enforced? Only when one is configured.
+function adminAuthRequired() {
+  return Boolean(state.adminPassword && state.adminPassword.length);
+}
+
 // Constant-time admin password check (avoids timing leaks).
+// When no admin password is configured, the dashboard is OPEN and every check
+// passes — so the user is never asked for a password (autonomous default).
 function checkPassword(p) {
+  if (!adminAuthRequired()) return true;
   if (typeof p !== "string" || !p) return false;
   const a = Buffer.from(p);
   const b = Buffer.from(state.adminPassword);
@@ -78,6 +91,55 @@ function checkPassword(p) {
   } catch {
     return false;
   }
+}
+
+// ===================== Local-file fallback persistence =====================
+// Supabase/Postgres is the source of truth when DATABASE_URL is set. But to make
+// the system fully autonomous, config + skills also persist to a local JSON file,
+// so a restart NEVER wipes settings even if the database is unreachable or unset.
+const LOCAL_STORE = process.env.PD_STATE_FILE || path.join(__dirname, ".pd-state.json");
+
+function saveStateToFile() {
+  try {
+    const snapshot = {
+      refreshToken: state.refreshToken,
+      gummieId: state.gummieId,
+      adminPassword: state.adminPassword,
+      firebaseApiKey: state.firebaseApiKey,
+      turnstileSiteKey: state.turnstileSiteKey,
+      hcaptchaSiteKey: state.hcaptchaSiteKey,
+      port: state.port,
+      dbUrl: state.dbUrl,
+      skills: state.skills,
+    };
+    fs.writeFileSync(LOCAL_STORE, JSON.stringify(snapshot, null, 2));
+  } catch (e) { console.error("saveStateToFile:", e.message); }
+}
+
+function loadStateFromFile() {
+  try {
+    if (!fs.existsSync(LOCAL_STORE)) return;
+    const m = JSON.parse(fs.readFileSync(LOCAL_STORE, "utf8")) || {};
+    if (m.refreshToken) state.refreshToken = m.refreshToken;
+    if (m.gummieId) state.gummieId = m.gummieId;
+    if (typeof m.adminPassword === "string") state.adminPassword = m.adminPassword;
+    if (m.firebaseApiKey) state.firebaseApiKey = m.firebaseApiKey;
+    if (m.turnstileSiteKey) state.turnstileSiteKey = m.turnstileSiteKey;
+    if (m.hcaptchaSiteKey) state.hcaptchaSiteKey = m.hcaptchaSiteKey;
+    if (m.port) state.port = parsePort(m.port, state.port);
+    if (m.dbUrl && !state.dbUrl) state.dbUrl = m.dbUrl;
+    if (m.skills && typeof m.skills === "object") {
+      for (const slug of Object.keys(m.skills)) {
+        const row = m.skills[slug] || {};
+        state.skills[slug] = {
+          slug,
+          label: row.label || (state.skills[slug] && state.skills[slug].label) || slug,
+          filename: row.filename || "",
+          contract: row.contract || "",
+        };
+      }
+    }
+  } catch (e) { console.error("loadStateFromFile:", e.message); }
 }
 
 // ===================== Postgres persistence =====================
@@ -133,6 +195,8 @@ async function loadConfigFromDb() {
 }
 
 async function saveConfigToDb() {
+  // Always mirror to the local file so settings persist with or without a DB.
+  saveStateToFile();
   if (!pool) return;
   const up = (k, v) => pool.query(
     `INSERT INTO pd_config(key, value, updated_at) VALUES($1, $2, now())
@@ -156,16 +220,54 @@ async function loadSkillsFromDb() {
        ON CONFLICT(slug) DO UPDATE SET label = $2`, [sk.slug, sk.label]);
   }
   const r = await pool.query("SELECT slug, label, filename, contract FROM pd_skills");
+  // Supabase is the source of truth for skills: load EVERY row, including any
+  // skills that were added beyond the built-in defaults.
   r.rows.forEach((row) => {
-    if (state.skills[row.slug]) {
-      state.skills[row.slug].label = row.label || state.skills[row.slug].label;
-      state.skills[row.slug].filename = row.filename || "";
-      state.skills[row.slug].contract = row.contract || "";
-    }
+    const existing = state.skills[row.slug] || { slug: row.slug };
+    state.skills[row.slug] = {
+      slug: row.slug,
+      label: row.label || existing.label || row.slug,
+      filename: row.filename || "",
+      contract: row.contract || "",
+    };
   });
 }
 
+// Read the current skill list straight from Supabase (falls back to in-memory
+// state / local file when no DB is connected). This is what both the chat
+// composer and the admin dashboard render, so skills are always DB-driven.
+async function getSkillsList() {
+  if (pool) {
+    try {
+      const r = await pool.query(
+        "SELECT slug, label, filename, contract FROM pd_skills ORDER BY label");
+      if (r.rows.length) {
+        // Keep in-memory state in sync so /api/send can read contracts.
+        r.rows.forEach((row) => {
+          state.skills[row.slug] = {
+            slug: row.slug,
+            label: row.label || row.slug,
+            filename: row.filename || "",
+            contract: row.contract || "",
+          };
+        });
+        return r.rows.map((row) => ({
+          slug: row.slug,
+          label: row.label || row.slug,
+          filename: row.filename || "",
+          hasContract: Boolean(row.contract),
+        }));
+      }
+    } catch (e) { console.error("getSkillsList:", e.message); }
+  }
+  return Object.values(state.skills).map((s) => ({
+    slug: s.slug, label: s.label, filename: s.filename || "", hasContract: Boolean(s.contract),
+  }));
+}
+
 async function saveSkillToDb(slug) {
+  // Mirror skills to the local file too, so contracts survive a DB outage.
+  saveStateToFile();
   if (!pool) return;
   const s = state.skills[slug];
   if (!s) return;
@@ -250,6 +352,24 @@ app.get("/api/status", (req, res) => {
     // Firebase API key is NOT exposed (server-side only); report presence only.
     firebaseConfigured: Boolean(state.firebaseApiKey),
     port: state.port,
+    // The UI uses this to hide the password field entirely when it's not enforced.
+    adminAuthRequired: adminAuthRequired(),
+  });
+});
+
+// Current non-secret config, so the admin form can REPOPULATE on load.
+// This is why a refresh no longer looks like it "wiped" your settings — the
+// stored values are shown right back to you.
+app.get("/api/admin/config", (req, res) => {
+  res.json({
+    gummieId: state.gummieId,
+    refreshTokenConfigured: Boolean(state.refreshToken),
+    firebaseConfigured: Boolean(state.firebaseApiKey),
+    turnstileSiteKey: state.turnstileSiteKey,
+    hcaptchaSiteKey: state.hcaptchaSiteKey,
+    port: state.port,
+    dbConnected: state.dbConnected,
+    adminAuthRequired: adminAuthRequired(),
   });
 });
 
@@ -331,18 +451,116 @@ app.post("/api/admin/agents", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// ===================== Skills (working contracts) =====================
-app.get("/api/skills", (req, res) => {
-  const list = DEFAULT_SKILLS.map((d) => {
-    const s = state.skills[d.slug];
-    return { slug: s.slug, label: s.label, filename: s.filename || "", hasContract: Boolean(s.contract) };
+// Parse a Firebase auth blob (the firebase:authUser:... value from browser
+// storage) into { refreshToken, apiKey }. Accepts JSON or loose text.
+function parseAuthBlob(raw) {
+  let apiKey = "", refreshToken = "";
+  if (!raw || typeof raw !== "string") return { apiKey, refreshToken };
+  raw = raw.trim();
+  try {
+    const o = JSON.parse(raw);
+    const v = o.value || o;
+    apiKey = v.apiKey || "";
+    refreshToken = (v.stsTokenManager && v.stsTokenManager.refreshToken) || v.refreshToken || "";
+  } catch {
+    const ak = raw.match(/["']?apiKey["']?\s*[:=]\s*["']([^"']+)["']/);
+    const rt = raw.match(/["']?refreshToken["']?\s*[:=]\s*["']([^"']+)["']/);
+    if (ak) apiKey = ak[1];
+    if (rt) refreshToken = rt[1];
+  }
+  return { apiKey: apiKey.trim(), refreshToken: refreshToken.trim() };
+}
+
+// ===================== Autonomous setup (paste blob -> done) =====================
+// One call does EVERYTHING: extract the refresh token + API key from the blob,
+// mint a token, auto-detect the account's agents, auto-select the Agent ID (the
+// only agent, or the first), and persist it all. No "Detect" button, no Agent ID
+// typing. If several agents exist, the token is still saved and the list is
+// returned so the user can switch agents, but a default is already chosen.
+app.post("/api/admin/blob", async (req, res) => {
+  const b = req.body || {};
+  if (!checkPassword(b.password)) return res.status(401).json({ error: "Invalid admin password." });
+
+  // Accept either a raw blob or already-extracted fields.
+  let refreshToken = (typeof b.refreshToken === "string" && b.refreshToken.trim()) || "";
+  let apiKey = (typeof b.firebaseApiKey === "string" && b.firebaseApiKey.trim()) || "";
+  if (b.blob) {
+    const parsed = parseAuthBlob(b.blob);
+    refreshToken = refreshToken || parsed.refreshToken;
+    apiKey = apiKey || parsed.apiKey;
+  }
+  if (!refreshToken) {
+    return res.status(400).json({ error: "Couldn't find a refresh token in that blob. Paste the full firebase:authUser:... value." });
+  }
+
+  // Mint a token (using the freshly-extracted creds, NOT the persisted ones) and
+  // list the account's agents.
+  let agents = [];
+  let detectError = "";
+  try {
+    const { idToken, uid } = await mintIdToken(refreshToken, apiKey);
+    const r = await fetch(API + "/gummies", { headers: restHeaders(idToken, uid) });
+    const text = await r.text();
+    if (!r.ok) {
+      detectError = "Upstream " + r.status + ": " + text.slice(0, 160);
+    } else {
+      let d; try { d = JSON.parse(text); } catch { d = {}; }
+      const arr = Array.isArray(d) ? d : (d.data || d.gummies || d.results || d.items || []);
+      agents = arr.map((g) => ({
+        id: g.gummie_id || g.id || g.gummieId || g._id || "",
+        name: g.name || g.gummie_name || g.title || g.label || "(unnamed)",
+      })).filter((a) => a.id);
+    }
+  } catch (e) {
+    return res.status(400).json({ error: "Token from blob didn't work: " + e.message });
+  }
+
+  // Persist everything now: token, API key (if present), and the chosen agent.
+  state.refreshToken = refreshToken;
+  state.idToken = ""; state.idTokenExp = 0;
+  if (apiKey) state.firebaseApiKey = apiKey;
+  let selectedAgent = "";
+  if (agents.length) {
+    // Keep the current agent if it's still valid; otherwise pick the first.
+    selectedAgent = agents.some((a) => a.id === state.gummieId) ? state.gummieId : agents[0].id;
+    state.gummieId = selectedAgent;
+  }
+  await saveConfigToDb();
+
+  res.json({
+    ok: true,
+    configured: Boolean(state.refreshToken),
+    apiKeyDetected: Boolean(apiKey),
+    agents,
+    gummieId: state.gummieId,
+    selectedAgent,
+    dbConnected: state.dbConnected,
+    detectError,
   });
-  res.json({ skills: list });
 });
 
-app.post("/api/admin/skill/get", (req, res) => {
+// ===================== Skills (working contracts) =====================
+// Skills are fetched live from Supabase (see getSkillsList).
+app.get("/api/skills", async (req, res) => {
+  try { res.json({ skills: await getSkillsList() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/admin/skill/get", async (req, res) => {
   const { password, slug } = req.body || {};
   if (!checkPassword(password)) return res.status(401).json({ error: "Invalid admin password." });
+  // Prefer the freshest copy from Supabase.
+  if (pool) {
+    try {
+      const r = await pool.query(
+        "SELECT slug, label, filename, contract FROM pd_skills WHERE slug = $1", [slug]);
+      if (r.rows[0]) {
+        const row = r.rows[0];
+        state.skills[slug] = { slug: row.slug, label: row.label || slug, filename: row.filename || "", contract: row.contract || "" };
+        return res.json({ slug: row.slug, label: row.label || slug, filename: row.filename || "", contract: row.contract || "" });
+      }
+    } catch (e) { /* fall through to memory */ }
+  }
   const s = state.skills[slug];
   if (!s) return res.status(404).json({ error: "Unknown skill." });
   res.json({ slug: s.slug, label: s.label, filename: s.filename || "", contract: s.contract || "" });
@@ -496,9 +714,12 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 
 // ===================== Boot =====================
 async function start() {
+  // Load any locally-persisted settings first so a restart never loses config,
+  // even when the database is unset or temporarily unreachable.
+  loadStateFromFile();
   if (state.dbUrl) {
-    try { await connectDb(state.dbUrl); console.log("Database connected; config loaded."); }
-    catch (e) { console.error("Database connect failed:", e.message); }
+    try { await connectDb(state.dbUrl); console.log("Database connected; config loaded (Supabase is source of truth)."); }
+    catch (e) { console.error("Database connect failed; using local persisted config:", e.message); }
   }
   app.listen(state.port, () => {
     console.log(`ProfessorDoom on http://localhost:${state.port}`);

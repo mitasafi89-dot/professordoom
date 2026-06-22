@@ -30,13 +30,24 @@ function setChip(id, text, level) {
   el.innerHTML = '<span class="cdot"></span>' + text;
 }
 
+// Whether the server enforces an admin password. When false, we hide the field
+// entirely and never ask for one.
+let ADMIN_AUTH_REQUIRED = false;
+
+// Reflect/hide the password requirement in the UI.
+function applyAuthRequirement(required) {
+  ADMIN_AUTH_REQUIRED = !!required;
+  const pwRow = document.querySelector(".admin-pw");
+  if (pwRow) pwRow.style.display = ADMIN_AUTH_REQUIRED ? "" : "none";
+}
+
 async function refreshStatus() {
   try {
     const s = await (await fetch("/api/status")).json();
+    applyAuthRequirement(s.adminAuthRequired);
     if (s.configured) setChip("chipSession", s.gummieId ? "Configured" : "No agent set", s.gummieId ? "ok" : "warn");
     else setChip("chipSession", "Not configured", "bad");
     setChip("chipDb", s.dbConnected ? "Database on" : "Database off", s.dbConnected ? "ok" : "warn");
-    if (s.gummieId) $("gummieId").placeholder = s.gummieId;
     if (s.turnstileSiteKey) $("turnstileSiteKey").placeholder = s.turnstileSiteKey;
     if (s.hcaptchaSiteKey) $("hcaptchaSiteKey").placeholder = s.hcaptchaSiteKey;
     if (s.port) $("port").placeholder = s.port;
@@ -46,31 +57,75 @@ async function refreshStatus() {
   }
 }
 
-// ---------- auth-blob extractor ----------
-function extractBlob() {
-  const raw = $("authBlob").value.trim();
-  if (!raw) return notify("Paste the auth blob first.", false, "extractNotice");
-  let apiKey = "", refreshToken = "";
+// Repopulate the form with the CURRENTLY-STORED values so a page refresh shows
+// your settings instead of looking blank. This is the fix for "refreshing clears
+// all my settings" — nothing was lost; the form just wasn't reading it back.
+async function loadConfig() {
   try {
-    const o = JSON.parse(raw); const v = o.value || o;
-    apiKey = v.apiKey || "";
-    refreshToken = (v.stsTokenManager && v.stsTokenManager.refreshToken) || v.refreshToken || "";
-  } catch {
-    const ak = raw.match(/["']?apiKey["']?\s*[:=]\s*["']([^"']+)["']/);
-    const rt = raw.match(/["']?refreshToken["']?\s*[:=]\s*["']([^"']+)["']/);
-    if (ak) apiKey = ak[1];
-    if (rt) refreshToken = rt[1];
+    const c = await (await fetch("/api/admin/config")).json();
+    if (c.gummieId) $("gummieId").value = c.gummieId;
+    if (c.port) $("port").value = c.port;
+    if (c.turnstileSiteKey) $("turnstileSiteKey").value = c.turnstileSiteKey;
+    if (c.hcaptchaSiteKey) $("hcaptchaSiteKey").value = c.hcaptchaSiteKey;
+    if (c.refreshTokenConfigured) {
+      $("refreshToken").placeholder = "✓ stored — leave blank to keep current";
+    }
+    if (c.firebaseConfigured) {
+      $("firebaseApiKey").placeholder = "✓ stored — leave blank to keep current";
+    }
+  } catch { /* ignore */ }
+}
+
+// ---------- autonomous setup: paste blob -> everything ----------
+// One action does it all: extract the refresh token + API key, auto-detect the
+// account's agents, auto-select the Agent ID, and persist. No buttons to click,
+// no Agent ID to type. Fires automatically when you paste the blob.
+let autoConnecting = false;
+async function autoConnectFromBlob(opts) {
+  opts = opts || {};
+  const raw = $("authBlob").value.trim();
+  if (!raw) {
+    if (!opts.silent) notify("Paste the firebase:authUser:… value first.", false, "extractNotice");
+    return;
   }
-  if (!refreshToken && !apiKey) return notify("Could not find a refresh token or API key in that text.", false, "extractNotice");
-  if (refreshToken) $("refreshToken").value = refreshToken;
-  if (apiKey) $("firebaseApiKey").value = apiKey;
-  notify("✓ Extracted " + [refreshToken ? "refresh token" : "", apiKey ? "API key" : ""].filter(Boolean).join(" + ") + ". Now Save session.", true, "extractNotice");
+  if (autoConnecting) return;
+  autoConnecting = true;
+  notify("Connecting — extracting token, detecting your agent…", true, "extractNotice");
+  try {
+    const body = { blob: raw };
+    if (ADMIN_AUTH_REQUIRED) body.password = $("password").value;
+    const { ok, data } = await post("/api/admin/blob", body);
+    if (!ok) { notify(data.error || "Couldn't connect from that blob.", false, "extractNotice"); return; }
+
+    // Reflect detected agent(s) in the UI.
+    if (data.gummieId) $("gummieId").value = data.gummieId;
+    const agents = data.agents || [];
+    if (agents.length > 1) {
+      const sel = $("agentSelect");
+      sel.innerHTML = agents.map((x) => '<option value="' + x.id + '"' + (x.id === data.gummieId ? " selected" : "") + '>' + x.name + " — " + x.id + "</option>").join("");
+      $("agentPickWrap").style.display = "";
+      sel.value = data.gummieId;
+    } else {
+      $("agentPickWrap").style.display = "none";
+    }
+
+    let msg = "✓ Connected.";
+    if (agents.length === 1) msg += " Agent auto-selected: " + (agents[0].name || data.gummieId) + ".";
+    else if (agents.length > 1) msg += " " + agents.length + " agents found — default selected, switch above if needed.";
+    else if (data.detectError) msg += " (Token saved, but agent list couldn't load: " + data.detectError + ")";
+    msg += data.apiKeyDetected ? " API key detected." : "";
+    msg += " Settings saved" + (data.dbConnected ? " to Supabase." : " locally.");
+    notify(msg, true, "extractNotice");
+    $("authBlob").value = "";
+    refreshStatus();
+  } catch { notify("Could not reach the server.", false, "extractNotice"); }
+  finally { autoConnecting = false; }
 }
 
 // ---------- save (session + advanced share one payload) ----------
 async function save(noticeId, btnId) {
   const password = $("password").value;
-  if (!password) return notify("Enter the admin password.", false, noticeId);
+  if (ADMIN_AUTH_REQUIRED && !password) return notify("Enter the admin password.", false, noticeId);
   const body = { password };
   const fields = ["refreshToken", "gummieId", "firebaseApiKey", "turnstileSiteKey", "hcaptchaSiteKey", "port", "newPassword"];
   fields.forEach((k) => { const v = $(k).value.trim(); if (v) body[k] = v; });
@@ -90,7 +145,7 @@ async function save(noticeId, btnId) {
 
 async function verify() {
   const password = $("password").value;
-  if (!password) return notify("Enter the admin password to verify.", false);
+  if (ADMIN_AUTH_REQUIRED && !password) return notify("Enter the admin password to verify.", false);
   notify("Minting a token…", true);
   const { ok, data } = await post("/api/admin/verify", { password });
   if (ok) notify("✓ Session works. Authenticated as uid " + data.uid, true);
@@ -99,7 +154,7 @@ async function verify() {
 
 async function clearSession() {
   const password = $("password").value;
-  if (!password) return notify("Enter the admin password to clear.", false);
+  if (ADMIN_AUTH_REQUIRED && !password) return notify("Enter the admin password to clear.", false);
   const { ok, data } = await post("/api/admin/clear", { password });
   if (ok) { notify("Stored session cleared.", true); refreshStatus(); }
   else notify(data.error || "Clear failed.", false);
@@ -108,7 +163,7 @@ async function clearSession() {
 // ---------- detect agents ----------
 async function detectAgents() {
   const password = $("password").value;
-  if (!password) return notify("Enter the admin password first.", false, "agentNotice");
+  if (ADMIN_AUTH_REQUIRED && !password) return notify("Enter the admin password first.", false, "agentNotice");
   $("detectAgents").disabled = true;
   notify("Detecting…", true, "agentNotice");
   try {
@@ -144,7 +199,7 @@ async function onSkillChange() {
     ? '<span class="cdot ok"></span>Contract set' + (s.filename ? ' &middot; <code>' + s.filename + "</code>" : "")
     : '<span class="cdot warn"></span>No contract yet';
   const password = $("password").value;
-  if (password && s.hasContract) {
+  if ((!ADMIN_AUTH_REQUIRED || password) && s.hasContract) {
     const { ok, data } = await post("/api/admin/skill/get", { password, slug: s.slug });
     $("skillText").value = ok ? (data.contract || "") : "";
   } else { $("skillText").value = ""; }
@@ -158,7 +213,7 @@ function readFileBase64(file) {
 }
 async function saveSkill() {
   const password = $("password").value;
-  if (!password) return notify("Enter the admin password.", false, "skillNotice");
+  if (ADMIN_AUTH_REQUIRED && !password) return notify("Enter the admin password.", false, "skillNotice");
   const s = currentSkill(); if (!s) return notify("Pick a skill.", false, "skillNotice");
   const file = $("skillFile").files[0];
   const text = $("skillText").value.trim();
@@ -176,7 +231,11 @@ async function saveSkill() {
 }
 
 // ---------- wiring ----------
-$("extract").addEventListener("click", extractBlob);
+// The blob button now runs the full autonomous connect (extract + detect + select + save).
+$("extract").addEventListener("click", () => autoConnectFromBlob());
+// Auto-fire the moment a blob is pasted — no clicks needed.
+$("authBlob").addEventListener("paste", () => setTimeout(() => autoConnectFromBlob({ silent: true }), 80));
+// Manual Detect remains as a fallback for typed-in tokens.
 $("detectAgents").addEventListener("click", detectAgents);
 $("agentSelect").addEventListener("change", () => { $("gummieId").value = $("agentSelect").value; });
 $("save").addEventListener("click", () => save("notice", "save"));
@@ -187,4 +246,5 @@ $("skillSelect").addEventListener("change", onSkillChange);
 $("saveSkill").addEventListener("click", saveSkill);
 $("password").addEventListener("change", onSkillChange);
 refreshStatus();
+loadConfig();
 loadSkills();

@@ -42,7 +42,7 @@
             <label for="password">Admin password</label>
             <input id="password" type="password" placeholder="Enter to authorize changes" autocomplete="off" />
           </div>
-          <span class="pw-hint">Required for every save.</span>
+          <span class="pw-hint">Optional — only set this if /admin is publicly reachable.</span>
         </div>
 
         <main class="admin-body">
@@ -52,14 +52,14 @@
               <div class="pcard-head">
                 <div class="section-tag">Connect</div>
                 <h3>Session credentials</h3>
-                <p class="desc">Paste the <code>firebase:authUser:&hellip;</code> value from your browser storage and click <strong>Extract</strong> &mdash; the refresh token and API key fill in automatically. Credentials are held server-side only.</p>
+                <p class="desc">Just paste the <code>firebase:authUser:&hellip;</code> value from your browser storage &mdash; that's it. The refresh token and API key are extracted, your agent is auto-detected and selected, and everything is saved automatically. No buttons, no Agent ID to type. Credentials are held server-side only.</p>
               </div>
               <div class="pcard-body">
                 <div class="field">
-                  <label for="authBlob">Auth blob <span class="label-hint">(optional shortcut)</span></label>
+                  <label for="authBlob">Auth blob <span class="label-hint">(paste &mdash; auto-connects)</span></label>
                   <textarea id="authBlob" placeholder='{ "apiKey": "&hellip;", "stsTokenManager": { "refreshToken": "&hellip;" } }'></textarea>
                 </div>
-                <div class="row-actions"><button id="extract" class="btn-primary btn-gold">Extract from blob</button></div>
+                <div class="row-actions"><button id="extract" class="btn-primary btn-gold">Connect &amp; auto-detect</button></div>
                 <div id="extractNotice" class="notice"></div>
 
                 <div class="divider"></div>
@@ -71,7 +71,7 @@
                 <div class="field">
                   <label for="gummieId">Agent <span class="label-hint">(which agent to drive)</span></label>
                   <div class="inline-row">
-                    <input id="gummieId" type="text" placeholder="Agent ID &mdash; or click Detect" />
+                    <input id="gummieId" type="text" placeholder="Auto-filled from the blob &mdash; or type/Detect" />
                     <button id="detectAgents" class="btn-primary btn-gold">Detect</button>
                   </div>
                 </div>

@@ -16,7 +16,14 @@ const whoEl = $('who');
 
 let GUMMIE_ID = '';
 let CURRENT_INTERACTION = null;
-let SELECTED_MODEL = { label: 'Claude 4.8 Opus', value: 'gummies_smartest' };
+// Restore the previously-chosen model so a refresh / skill change keeps it.
+let SELECTED_MODEL = (function () {
+  try {
+    const saved = JSON.parse(localStorage.getItem('pd_model') || 'null');
+    if (saved && saved.value) return saved;
+  } catch {}
+  return { label: 'Claude 4.8 Opus', value: 'gummies_smartest' };
+})();
 let SEND_CONFIGURED = false;
 let busy = false;
 let SELECTED_SKILL = localStorage.getItem('pd_skill') || '';
@@ -105,8 +112,10 @@ async function loadModels() {
         (o.description || m.description ? '<div class="desc">' + (o.description || m.description) + '</div>' : '') +
         (m.intelligence_rating ? '<div class="ratings">Intelligence ' + m.intelligence_rating + '/5 · Speed ' + (m.speed_rating || '?') + '/5 · ' + (m.provider || '') + '</div>' : '') +
         '</div>';
+      if (value === SELECTED_MODEL.value) opt.classList.add('selected');
       opt.addEventListener('click', () => {
         SELECTED_MODEL = { label: name, value };
+        try { localStorage.setItem('pd_model', JSON.stringify(SELECTED_MODEL)); } catch {}
         modelLabel.textContent = name;
         modelMenu.classList.remove('show');
         [...modelMenu.querySelectorAll('.model-opt')].forEach((e) => e.classList.remove('selected'));
