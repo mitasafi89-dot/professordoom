@@ -224,6 +224,7 @@ async function openConversation(interactionId, name, el) {
   convNameEl.textContent = name || 'Conversation';
   [...convListEl.querySelectorAll('.conv')].forEach((e) => e.classList.remove('active'));
   if (el) el.classList.add('active');
+  threadEl.classList.remove('is-landing');
   threadInner.innerHTML = '<div class="empty"><span class="typing"><span></span><span></span><span></span></span></div>';
   try {
     const d = await gl('gummie_interactions/' + interactionId);
@@ -234,7 +235,34 @@ async function openConversation(interactionId, name, el) {
   }
 }
 
+function landingHTML(subtitle) {
+  const sub = subtitle || 'ProfessorDoom is an adversarial reviewer &mdash; it finds the flaw first. Start a new critique or pick a prompt below.';
+  return ''
+    + '<div class="landing">'
+    +   '<div class="crest landing-crest" aria-hidden="true"></div>'
+    +   '<h2 class="landing-title">Where should we begin?</h2>'
+    +   '<p class="landing-sub">' + sub + '</p>'
+    +   '<div class="suggestions">'
+    +     '<button class="suggestion-card" data-prompt="Here is my abstract. Stress-test it: identify the single weakest claim and explain exactly how a hostile reviewer would attack it.\n\n"><span class="sc-title">Stress-test my abstract</span><span class="sc-desc">Find the weakest claim and how a hostile reviewer would attack it.</span></button>'
+    +     '<button class="suggestion-card" data-prompt="Review the following manuscript section as an adversarial reviewer. Find the fatal flaw first, then list lesser issues in order of severity.\n\n"><span class="sc-title">Find the fatal flaw</span><span class="sc-desc">Adversarial review of a methods or results section.</span></button>'
+    +     '<button class="suggestion-card" data-prompt="Scrutinize the statistics and quantitative claims below. Challenge every assumption, test choice, and inference.\n\n"><span class="sc-title">Interrogate my statistics</span><span class="sc-desc">Scrutinize the statistical reasoning and assumptions.</span></button>'
+    +     '<button class="suggestion-card" data-prompt="My thesis is below. Build the strongest possible objection to it &mdash; the one most likely to sink the paper in peer review.\n\n"><span class="sc-title">Steelman the objection</span><span class="sc-desc">Build the strongest counterargument to my thesis.</span></button>'
+    +   '</div>'
+    + '</div>';
+}
+
+// Suggestion-card click -> fill composer (event delegation, set once)
+threadInner.addEventListener('click', (e) => {
+  const card = e.target.closest('.suggestion-card');
+  if (!card) return;
+  inputEl.value = card.getAttribute('data-prompt') || '';
+  inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+  inputEl.focus();
+  inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+});
+
 function renderThread(msgs) {
+  threadEl.classList.remove('is-landing');
   threadInner.innerHTML = '';
   if (!msgs.length) {
     threadInner.innerHTML = '<div class="empty"><p>No messages in this conversation.</p></div>';
@@ -523,6 +551,9 @@ async function runTurn(text, opts) {
   const abort = new AbortController();
   currentAbort = abort;
   setSendingUI(true);
+  threadEl.classList.remove('is-landing');
+  const emptyNow = threadInner.querySelector('.empty');
+  if (emptyNow) emptyNow.remove();
   if (emptyEl) emptyEl.remove();
   const ub = addMessage('user', text);
   if (opts.auto && ub) { const m = ub.closest('.msg'); if (m) m.classList.add('auto-msg'); }
@@ -669,7 +700,8 @@ $('newChat').addEventListener('click', () => {
   CURRENT_INTERACTION = null;
   convNameEl.textContent = 'New chat';
   renderConvList();
-  threadInner.innerHTML = '<div class="empty"><div class="big">New conversation</div><p>Type below to start' + (SELECTED_SKILL ? ' under the <strong>' + (skillLabel(SELECTED_SKILL) || 'selected') + '</strong> contract' : '') + '. Sent using the selected model.</p></div>';
+  threadEl.classList.add('is-landing');
+  threadInner.innerHTML = '<div class="empty">' + landingHTML(SELECTED_SKILL ? 'Working under the <strong>' + (skillLabel(SELECTED_SKILL) || 'selected') + '</strong> contract. Start a new critique or pick a prompt below.' : '') + '</div>';
   inputEl.focus();
 });
 

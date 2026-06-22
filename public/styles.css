@@ -659,3 +659,83 @@ button { font-family: inherit; }
 
 /* Honest skill-note state when DB is disconnected / contract missing */
 .skill-note.warn { color: #b45309; }
+
+
+/* ============================================================
+   ChatGPT-style landing (empty / new-chat state)
+   ============================================================ */
+.thread.is-landing { overflow-y: auto; }
+.thread.is-landing .thread-inner {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+.thread.is-landing .empty { padding: 0; text-align: center; width: 100%; }
+
+.landing {
+  width: 100%;
+  max-width: var(--reading);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.landing-crest {
+  width: 56px; height: 56px; border-radius: 16px; flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px var(--border-2), var(--shadow-sm);
+  margin-bottom: 20px;
+}
+.landing-title {
+  font-family: var(--serif);
+  font-size: clamp(26px, 4vw, 34px);
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 10px;
+  letter-spacing: -0.01em;
+}
+.landing-sub {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  max-width: 560px;
+  margin: 0 0 30px;
+}
+
+.suggestions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .suggestions { grid-template-columns: 1fr; }
+}
+.suggestion-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  cursor: pointer;
+  font-family: var(--font);
+  box-shadow: var(--shadow-xs);
+  transition: border-color .15s ease, box-shadow .15s ease, transform .08s ease, background .15s ease;
+}
+.suggestion-card:hover {
+  border-color: var(--brand-200);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.suggestion-card:active { transform: translateY(0); }
+.suggestion-card:focus-visible { outline: none; box-shadow: var(--ring); border-color: var(--brand); }
+.sc-title { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.sc-desc { font-size: 13px; line-height: 1.45; color: var(--text-dim); }
