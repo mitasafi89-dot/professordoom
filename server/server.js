@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * ProfessorDoom — custom UI over a Gumloop session, with Postgres persistence.
+ * ProfessorDoom, custom UI over a Gumloop session, with Postgres persistence.
  *
  * Auth: a Firebase refresh token (project agenthub-dev), held server-side only.
  * The server mints short-lived id_tokens from it, proxies REST reads to
@@ -82,7 +82,7 @@ function adminAuthRequired() {
 
 // Constant-time admin password check (avoids timing leaks).
 // When no admin password is configured, the dashboard is OPEN and every check
-// passes — so the user is never asked for a password (autonomous default).
+// passes, so the user is never asked for a password (autonomous default).
 function checkPassword(p) {
   if (!adminAuthRequired()) return true;
   if (typeof p !== "string" || !p) return false;
@@ -361,7 +361,7 @@ app.get("/api/status", (req, res) => {
 });
 
 // Current non-secret config, so the admin form can REPOPULATE on load.
-// This is why a refresh no longer looks like it "wiped" your settings — the
+// This is why a refresh no longer looks like it "wiped" your settings, the
 // stored values are shown right back to you.
 app.get("/api/admin/config", (req, res) => {
   res.json({
@@ -546,14 +546,14 @@ app.post("/api/admin/blob", async (req, res) => {
 // Skills are fetched live from Supabase (see getSkillsList).
 app.get("/api/skills", async (req, res) => {
   // dbConnected lets the chat UI tell "DB not connected" apart from "no contract
-  // uploaded" — otherwise a disconnected DB looks like a missing contract.
+  // uploaded", otherwise a disconnected DB looks like a missing contract.
   try { res.json({ skills: await getSkillsList(), dbConnected: state.dbConnected }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Connect this server to Supabase/Postgres at RUNTIME (no shell/env needed) and
 // persist the connection string so it survives restarts. This is what makes the
-// stored skills/contracts actually load — without a connection the server falls
+// stored skills/contracts actually load, without a connection the server falls
 // back to empty in-memory defaults and every skill shows "no contract uploaded".
 app.post("/api/admin/database", async (req, res) => {
   const { password, url } = req.body || {};
@@ -674,7 +674,7 @@ app.post("/api/send", async (req, res) => {
   // user re-applies a skill mid-conversation (reinject).
   if ((isNew || reinject) && sk && sk.contract) {
     outgoing =
-      `You are operating under a binding WORKING CONTRACT for this task — "${sk.label}". ` +
+      `You are operating under a binding WORKING CONTRACT for this task: "${sk.label}". ` +
       `Treat every rule in it as authoritative for the entire conversation.\n\n` +
       `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
       `User's request:\n${message}`;
@@ -725,7 +725,7 @@ app.post("/api/send", async (req, res) => {
         if (o.type === "error") { wsError = o.errorMessage || o.error || "error"; clearTimeout(timer); finish(); return; }
         if (typeof o.text === "string") streamText += o.text;
         else if (typeof o.delta === "string") streamText += o.delta;
-        // Only terminate on the END OF THE WHOLE TURN — NOT on "step-finish",
+        // Only terminate on the END OF THE WHOLE TURN, NOT on "step-finish",
         // which fires after each intermediate step (e.g. a single tool call) and
         // would cut a multi-step agent off at its first action.
         if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) { clearTimeout(timer); finish(); }
@@ -761,7 +761,7 @@ app.post("/api/send", async (req, res) => {
 // ===================== Send (STREAMING, Server-Sent Events) =====================
 // Streams the agent's turn to the browser LIVE. Every Gumloop WS frame is
 // forwarded as an SSE `frame` event so reasoning, tool steps, and text deltas
-// appear as they happen — instead of the browser blocking until the whole turn
+// appear as they happen, instead of the browser blocking until the whole turn
 // finishes. A final `done` event carries the authoritative REST parts[] for an
 // exact re-render. The conversation (interaction_id) persists across turns just
 // as before; this only changes HOW the turn is delivered.
@@ -776,7 +776,7 @@ app.post("/api/send/stream", async (req, res) => {
   try { ({ idToken, uid } = await mintIdToken()); }
   catch (e) { return res.status(401).json({ error: e.message }); }
 
-  // SSE headers — open a persistent, unbuffered event stream to the browser.
+  // SSE headers, open a persistent, unbuffered event stream to the browser.
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
@@ -797,7 +797,7 @@ app.post("/api/send/stream", async (req, res) => {
   // user re-applies a skill mid-conversation (reinject).
   if ((isNew || reinject) && sk && sk.contract) {
     outgoing =
-      `You are operating under a binding WORKING CONTRACT for this task — "${sk.label}". ` +
+      `You are operating under a binding WORKING CONTRACT for this task: "${sk.label}". ` +
       `Treat every rule in it as authoritative for the entire conversation.\n\n` +
       `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
       `User's request:\n${message}`;
@@ -843,7 +843,7 @@ app.post("/api/send/stream", async (req, res) => {
     clearInterval(heartbeat);
     clearTimeout(timer);
     try { ws.close(); } catch {}
-    // REST reconciliation — the authoritative final parts for an exact re-render.
+    // REST reconciliation, the authoritative final parts for an exact re-render.
     let reply = streamText.trim();
     let parts = null;
     try {
@@ -909,7 +909,7 @@ app.post("/api/send/stream", async (req, res) => {
       if (typeof o.text === "string") streamText += o.text;
       else if (typeof o.delta === "string") streamText += o.delta;
       sse("frame", o);
-      // Terminate only on the END OF THE WHOLE TURN — never on per-step frames.
+      // Terminate only on the END OF THE WHOLE TURN, never on per-step frames.
       if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) return finishUp();
     } else {
       sse("frame", { raw: s.slice(0, 2000) });
@@ -937,7 +937,7 @@ async function start() {
   }
   app.listen(state.port, () => {
     console.log(`ProfessorDoom on http://localhost:${state.port}`);
-    console.log(state.refreshToken ? "Refresh token loaded." : "No session — set it in /admin");
+    console.log(state.refreshToken ? "Refresh token loaded." : "No session yet. Set it in /admin");
   });
 }
 

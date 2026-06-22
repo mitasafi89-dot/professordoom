@@ -236,7 +236,7 @@ async function openConversation(interactionId, name, el) {
 }
 
 function landingHTML(subtitle) {
-  const sub = subtitle || 'ProfessorDoom is an adversarial reviewer &mdash; it finds the flaw first. Start a new critique or pick a prompt below.';
+  const sub = subtitle || 'ProfessorDoom reads your work like a tough peer reviewer and goes straight for the weakest spot. Start a new critique, or pick a prompt to begin.';
   return ''
     + '<div class="landing">'
     +   '<div class="crest landing-crest" aria-hidden="true"></div>'
@@ -246,7 +246,7 @@ function landingHTML(subtitle) {
     +     '<button class="suggestion-card" data-prompt="Here is my abstract. Stress-test it: identify the single weakest claim and explain exactly how a hostile reviewer would attack it.\n\n"><span class="sc-title">Stress-test my abstract</span><span class="sc-desc">Find the weakest claim and how a hostile reviewer would attack it.</span></button>'
     +     '<button class="suggestion-card" data-prompt="Review the following manuscript section as an adversarial reviewer. Find the fatal flaw first, then list lesser issues in order of severity.\n\n"><span class="sc-title">Find the fatal flaw</span><span class="sc-desc">Adversarial review of a methods or results section.</span></button>'
     +     '<button class="suggestion-card" data-prompt="Scrutinize the statistics and quantitative claims below. Challenge every assumption, test choice, and inference.\n\n"><span class="sc-title">Interrogate my statistics</span><span class="sc-desc">Scrutinize the statistical reasoning and assumptions.</span></button>'
-    +     '<button class="suggestion-card" data-prompt="My thesis is below. Build the strongest possible objection to it &mdash; the one most likely to sink the paper in peer review.\n\n"><span class="sc-title">Steelman the objection</span><span class="sc-desc">Build the strongest counterargument to my thesis.</span></button>'
+    +     '<button class="suggestion-card" data-prompt="My thesis is below. Build the strongest possible objection to it, the one most likely to sink the paper in peer review.\n\n"><span class="sc-title">Steelman the objection</span><span class="sc-desc">Build the strongest counterargument to my thesis.</span></button>'
     +   '</div>'
     + '</div>';
 }
@@ -448,7 +448,7 @@ function renderLive(bubble, live) {
   bubble.innerHTML = html || '<span class="typing"><span></span><span></span><span></span></span>';
 }
 
-// Interpret one Gumloop frame into the live state (defensive — frame shapes can
+// Interpret one Gumloop frame into the live state (defensive, frame shapes can
 // vary; the authoritative re-render happens on `done`).
 function applyFrame(f, live) {
   if (!f || typeof f !== 'object') return;
@@ -717,10 +717,10 @@ function updateSkillNote() {
   if (!skillNoteEl) return;
   const s = SKILLS.find((x) => x.slug === SELECTED_SKILL);
   if (!SELECTED_SKILL) { skillNoteEl.textContent = ''; skillNoteEl.className = 'skill-note'; return; }
-  // If the DB is not connected the server can't read stored contracts — say so
+  // If the DB is not connected the server can't read stored contracts, say so
   // instead of the misleading "no contract uploaded yet".
   if (!DB_CONNECTED && !(s && s.hasContract)) {
-    skillNoteEl.textContent = '· database not connected — contracts can\u2019t load (set it in /admin → Advanced)';
+    skillNoteEl.textContent = '· database not connected, contracts can\u2019t load (set it in /admin, under the Advanced tab)';
     skillNoteEl.className = 'skill-note warn';
     return;
   }
@@ -774,15 +774,15 @@ if (skillSelectEl) {
 })();
 
 (async function init() {
-  // Model picker is static metadata (API with models.json fallback) — always
+  // Model picker is static metadata (API with models.json fallback), always
   // populate it so the dropdown works regardless of session/verification state.
   await loadModels();
   // Skills come from /api/skills (the admin-configured list) and aren't tied to
-  // the Gumloop session — load them too so the composer's skill picker is populated.
+  // the Gumloop session, load them too so the composer's skill picker is populated.
   await loadSkills();
   const ok = await refreshStatus();
   // Always render the verification widget so the "I am human" check is visible
-  // regardless of session/agent config — the site keys are served independently.
+  // regardless of session/agent config, the site keys are served independently.
   renderCaptcha();
   if (ok) {
     loadProfile();

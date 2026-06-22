@@ -9,7 +9,7 @@
  * Part B (browser): stubs the invisible captcha + blocks external captcha
  * scripts, enables Auto-continue, sends ONE message, and proves the client
  * auto-resends "continue" with NO human action until the agent emits
- * ⟦TASK_COMPLETE⟧ — i.e. the user never types "continue".
+ * ⟦TASK_COMPLETE⟧, i.e. the user never types "continue".
  */
 const http = require("http");
 const { WebSocketServer } = require("ws");
@@ -125,7 +125,7 @@ async function waitStatus() { for (let i = 0; i < 50; i++) { try { const r = awa
   ok(tp.done && tp.done.pending === true, "ask_human_input turn marked pending");
   ok(tp.done && tp.done.complete === false, "pending turn not marked complete");
 
-  // PART B — browser loop
+  // PART B, browser loop
   console.log("\nPART B \u2014 browser: auto-continue loop (no manual 'continue')");
   received.length = 0;
   let browserOk = true, pw;

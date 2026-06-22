@@ -1,9 +1,9 @@
 /* ===========================================================================
-   ProfessorDoom — UI theme  (refined "academic teal" system)
+   ProfessorDoom, UI theme  (refined "academic teal" system)
    Brand:  deep teal #006581 · academic gold #b8860b · warm-neutral paper
    Type:   Noto Serif (display) · Mulish (UI) · JetBrains Mono (code)
    Goal:   Claude-grade clarity & polish on a scholarly teal identity.
-   Visual layer only — every element id / class hook is preserved so the
+   Visual layer only, every element id / class hook is preserved so the
    existing app.js / admin.js continue to work unchanged.
    =========================================================================== */
 @import url("https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&family=Noto+Serif:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
@@ -535,7 +535,7 @@ button { font-family: inherit; }
 
 
 /* ============================================================
-   Conversation sidebar — redesigned (search, grouping, states)
+   Conversation sidebar, redesigned (search, grouping, states)
    ============================================================ */
 .conv-filter-wrap {
   position: relative;
@@ -623,7 +623,7 @@ button { font-family: inherit; }
 @keyframes skshimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
 
 /* ============================================================
-   Live activity — status line shown while a turn is streaming
+   Live activity, status line shown while a turn is streaming
    ============================================================ */
 .live-status {
   display: flex; align-items: center; gap: 8px;
@@ -779,7 +779,7 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
 
 
 /* ============================================================
-   Boot splash — animated crest (ChatGPT-style open animation)
+   Boot splash, animated crest (ChatGPT-style open animation)
    ============================================================ */
 .splash {
   position: fixed; inset: 0; z-index: 999;
@@ -802,7 +802,7 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
   box-shadow: inset 0 0 0 1px var(--border-2), var(--shadow);
   animation: splashBreathe 2.6s ease-in-out infinite;
 }
-/* Sonar rings — a reviewer scanning for the flaw */
+/* Sonar rings, a reviewer scanning for the flaw */
 .splash-logo .sonar {
   position: absolute; inset: 0; margin: auto;
   width: 84px; height: 84px; border-radius: 24px;
@@ -880,7 +880,7 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
 
 
 /* ============================================================
-   Admin console — ChatGPT-style settings refinement
+   Admin console, ChatGPT-style settings refinement
    ============================================================ */
 .admin-shell { max-width: 1100px; padding-top: 28px; }
 .admin-top { margin-bottom: 24px; padding-bottom: 18px; }
@@ -899,7 +899,7 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
 }
 .side-back:hover { background: var(--surface-3); color: var(--ink); }
 
-/* Calmer cards — lighter shadow, larger radius, flatter footer */
+/* Calmer cards, lighter shadow, larger radius, flatter footer */
 .pcard { border-radius: var(--radius); box-shadow: var(--shadow-xs); }
 .pcard-head { padding: 24px 26px 0; }
 .pcard-foot { background: var(--surface); }
@@ -910,7 +910,7 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
   padding: 0; margin-bottom: 10px; font-size: 11px; letter-spacing: .09em;
 }
 
-/* Cohesive single-accent buttons — retire the gold/brown mix */
+/* Cohesive single-accent buttons, retire the gold/brown mix */
 .btn-gold { background: var(--brand); border-color: var(--brand); color: #fff; }
 .btn-gold:hover { background: var(--brand-600); border-color: var(--brand-600); }
 

@@ -51,7 +51,7 @@ async function refreshStatus() {
     if (s.turnstileSiteKey) $("turnstileSiteKey").placeholder = s.turnstileSiteKey;
     if (s.hcaptchaSiteKey) $("hcaptchaSiteKey").placeholder = s.hcaptchaSiteKey;
     if (s.port) $("port").placeholder = s.port;
-    if (s.firebaseConfigured) $("firebaseApiKey").placeholder = "configured — leave blank to keep current";
+    if (s.firebaseConfigured) $("firebaseApiKey").placeholder = "configured, leave blank to keep current";
   } catch {
     setChip("chipSession", "Server offline", "bad");
   }
@@ -59,7 +59,7 @@ async function refreshStatus() {
 
 // Repopulate the form with the CURRENTLY-STORED values so a page refresh shows
 // your settings instead of looking blank. This is the fix for "refreshing clears
-// all my settings" — nothing was lost; the form just wasn't reading it back.
+// all my settings", nothing was lost; the form just wasn't reading it back.
 async function loadConfig() {
   try {
     const c = await (await fetch("/api/admin/config")).json();
@@ -68,10 +68,10 @@ async function loadConfig() {
     if (c.turnstileSiteKey) $("turnstileSiteKey").value = c.turnstileSiteKey;
     if (c.hcaptchaSiteKey) $("hcaptchaSiteKey").value = c.hcaptchaSiteKey;
     if (c.refreshTokenConfigured) {
-      $("refreshToken").placeholder = "✓ stored — leave blank to keep current";
+      $("refreshToken").placeholder = "✓ stored, leave blank to keep current";
     }
     if (c.firebaseConfigured) {
-      $("firebaseApiKey").placeholder = "✓ stored — leave blank to keep current";
+      $("firebaseApiKey").placeholder = "✓ stored, leave blank to keep current";
     }
   } catch { /* ignore */ }
 }
@@ -90,7 +90,7 @@ async function autoConnectFromBlob(opts) {
   }
   if (autoConnecting) return;
   autoConnecting = true;
-  notify("Connecting — extracting token, detecting your agent…", true, "extractNotice");
+  notify("Connecting, extracting token, detecting your agent…", true, "extractNotice");
   try {
     const body = { blob: raw };
     if (ADMIN_AUTH_REQUIRED) body.password = $("password").value;
@@ -102,7 +102,7 @@ async function autoConnectFromBlob(opts) {
     const agents = data.agents || [];
     if (agents.length > 1) {
       const sel = $("agentSelect");
-      sel.innerHTML = agents.map((x) => '<option value="' + x.id + '"' + (x.id === data.gummieId ? " selected" : "") + '>' + x.name + " — " + x.id + "</option>").join("");
+      sel.innerHTML = agents.map((x) => '<option value="' + x.id + '"' + (x.id === data.gummieId ? " selected" : "") + '>' + x.name + ", " + x.id + "</option>").join("");
       $("agentPickWrap").style.display = "";
       sel.value = data.gummieId;
     } else {
@@ -111,7 +111,7 @@ async function autoConnectFromBlob(opts) {
 
     let msg = "✓ Connected.";
     if (agents.length === 1) msg += " Agent auto-selected: " + (agents[0].name || data.gummieId) + ".";
-    else if (agents.length > 1) msg += " " + agents.length + " agents found — default selected, switch above if needed.";
+    else if (agents.length > 1) msg += " " + agents.length + " agents found, default selected, switch above if needed.";
     else if (data.detectError) msg += " (Token saved, but agent list couldn't load: " + data.detectError + ")";
     msg += data.apiKeyDetected ? " API key detected." : "";
     msg += " Settings saved" + (data.dbConnected ? " to Supabase." : " locally.");
@@ -172,12 +172,12 @@ async function detectAgents() {
     const { ok, data } = await post("/api/admin/agents", { password, refreshToken, firebaseApiKey });
     if (!ok) return notify(data.error || "Could not detect agents.", false, "agentNotice");
     const agents = data.agents || [];
-    if (!agents.length) return notify("No agents found — enter the Agent ID manually.", false, "agentNotice");
+    if (!agents.length) return notify("No agents found, enter the Agent ID manually.", false, "agentNotice");
     const sel = $("agentSelect");
-    sel.innerHTML = agents.map((x) => '<option value="' + x.id + '">' + x.name + " — " + x.id + "</option>").join("");
+    sel.innerHTML = agents.map((x) => '<option value="' + x.id + '">' + x.name + ", " + x.id + "</option>").join("");
     $("agentPickWrap").style.display = "";
     $("gummieId").value = agents[0].id; sel.value = agents[0].id;
-    notify("✓ Found " + agents.length + " agent(s). " + (agents.length === 1 ? "Filled in — Save session." : "Pick one, then Save."), true, "agentNotice");
+    notify("✓ Found " + agents.length + " agent(s). " + (agents.length === 1 ? "Filled in, Save session." : "Pick one, then Save."), true, "agentNotice");
   } catch { notify("Could not reach the server.", false, "agentNotice"); }
   finally { $("detectAgents").disabled = false; }
 }
@@ -233,7 +233,7 @@ async function saveSkill() {
 // ---------- wiring ----------
 // The blob button now runs the full autonomous connect (extract + detect + select + save).
 $("extract").addEventListener("click", () => autoConnectFromBlob());
-// Auto-fire the moment a blob is pasted — no clicks needed.
+// Auto-fire the moment a blob is pasted, no clicks needed.
 $("authBlob").addEventListener("paste", () => setTimeout(() => autoConnectFromBlob({ silent: true }), 80));
 // Manual Detect remains as a fallback for typed-in tokens.
 $("detectAgents").addEventListener("click", detectAgents);

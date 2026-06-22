@@ -1,7 +1,7 @@
 {
   "name": "professordoom",
   "version": "1.0.0",
-  "description": "ProfessorDoom — an adversarial scholarly manuscript reviewer powered by Claude.",
+  "description": "ProfessorDoom, an adversarial scholarly manuscript reviewer powered by Claude.",
   "main": "server/server.js",
   "type": "commonjs",
   "scripts": {

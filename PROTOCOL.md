@@ -1,4 +1,4 @@
-# Gumloop session — reverse-engineered protocol
+# Gumloop session, reverse-engineered protocol
 
 Decoded from a captured HAR + live probing from the server. This is what ProfessorDoom implements.
 
@@ -33,7 +33,7 @@ Model `claude-opus-4-8` = **Claude 4.8 Opus** (Auto selector value `gummies_smar
 
 ## Send a message  (WebSocket)
 
-`wss://ws.gumloop.com/ws/gummies` — connect with `Origin: https://www.gumloop.com` (auth is in the frame, not headers). Client sends one `start` frame:
+`wss://ws.gumloop.com/ws/gummies`, connect with `Origin: https://www.gumloop.com` (auth is in the frame, not headers). Client sends one `start` frame:
 
 ```jsonc
 {
@@ -58,7 +58,7 @@ Server streams back: `interaction-ready` → `step-start` (`modelId`) → text f
 
 ### Bot verification (the wall)
 
-**Every message** — including follow-ups in an existing conversation — requires BOTH:
+**Every message**, including follow-ups in an existing conversation, requires BOTH:
 - **Cloudflare Turnstile** token (sitekey `0x4AAAAAACMum7HpvvFmcf2r`), and
 - **hCaptcha** token (sitekey `5dd279d6-b56e-4dec-b474-6426c2f83150`).
 
@@ -66,4 +66,4 @@ Verified empirically from the server:
 - No Turnstile → `{"type":"error","error":"turnstile_token_missing"}` then WS close `1008`.
 - Turnstile present, bad hCaptcha → `{"type":"error","error":"hcaptcha_verification_failed"}`.
 
-These tokens are single-use, expire in seconds–minutes, and can only be produced by a real browser solving the challenge. **There is no captcha-free or fully-automated send path.** ProfessorDoom therefore renders both widgets in the composer; the user solves them per message and the tokens are forwarded in the `start` frame.
+These tokens are single-use, expire in seconds, minutes, and can only be produced by a real browser solving the challenge. **There is no captcha-free or fully-automated send path.** ProfessorDoom therefore renders both widgets in the composer; the user solves them per message and the tokens are forwarded in the `start` frame.

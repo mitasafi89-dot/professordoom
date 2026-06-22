@@ -1,6 +1,6 @@
 "use strict";
 /**
- * Mock Gumloop server for E2E tests — stands in for securetoken.googleapis.com,
+ * Mock Gumloop server for E2E tests, stands in for securetoken.googleapis.com,
  * api.gumloop.com, and wss://ws.gumloop.com. Emits a realistic turn frame
  * sequence so the streaming pipeline can be exercised end-to-end without real
  * credentials or the captcha wall.
