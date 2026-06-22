@@ -103,3 +103,34 @@ Each phase is committed to `main` before the next begins.
 All verified end-to-end against the mock Gumloop server through a headless browser. The
 only path not exercisable from CI is a real captcha-gated live send (no captcha-free path
 exists); the full stream→render pipeline is proven against a faithful mock.
+
+## 6. Phase 6 — Auto-continue (no manual "continue") ✅
+
+**Problem.** The agent ends each turn and the user had to type "continue" — and
+re-solve the captcha — to keep a long, multi-phase task moving. Two frictions:
+typing, and the single-use captcha. The captcha wall is unavoidable (Gumloop
+validates a real hCaptcha token per message), so the goal is to remove the
+typing and mint fresh tokens with as little human action as possible.
+
+**Solution (reuses existing primitives).**
+- **Server.** When the browser sends `autocontinue: true`, a short *AUTONOMOUS
+  MODE* directive is prepended to the outgoing message (same injection path as
+  the working contract). It tells the agent to work straight through the whole
+  task across turns and to end its FINAL message with the exact token
+  `⟦TASK_COMPLETE⟧` only when truly done — or to use `ask_human_input` if it
+  needs a decision. The streaming `done` event now also reports two authoritative
+  booleans: `complete` (sentinel present in the reconciled reply) and `pending`
+  (an `ask_human_input` tool part is present).
+- **Client.** hCaptcha + Turnstile render in **invisible** mode so a *fresh*,
+  single-use token is minted programmatically (`executeCaptcha()`) for every turn
+  — manual or automatic — with no extra clicking in the common low-risk case
+  (hCaptcha only surfaces a visible challenge when it insists). An **Auto-continue**
+  toggle (persisted) drives a loop: after each turn the client auto-resends
+  "continue" until `complete`, a `pending` question, an error, the user pressing
+  Stop, or a safety cap (`AUTO_CAP`, default 25). The completion sentinel is
+  stripped from the rendered text; auto-sent "continue" turns are marked subtly.
+
+**Verified** (`tests/test_autocontinue.js` + headless-browser loop test):
+directive injection, `complete`/`pending` detection, and a real loop where one
+user message drives multiple turns and stops on `⟦TASK_COMPLETE⟧` with zero
+human typing and zero page errors.

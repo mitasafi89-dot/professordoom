@@ -72,7 +72,14 @@
             <span id="skillNote" class="skill-note"></span>
           </div>
           <div id="captchaBar" class="captcha-bar">
-            <span class="captcha-label">Verify to send</span>
+            <label class="auto-toggle" title="Keep the agent working across turns without typing &quot;continue&quot;">
+              <input type="checkbox" id="autoToggle" />
+              <span class="auto-track"><span class="auto-thumb"></span></span>
+              <span class="auto-text">Auto-continue</span>
+            </label>
+            <span id="autoNote" class="auto-note" style="display:none"></span>
+            <span class="captcha-spacer"></span>
+            <span class="captcha-label">Verification runs automatically</span>
             <div id="turnstile"></div>
             <div id="hcaptcha"></div>
           </div>
@@ -83,7 +90,7 @@
             </button>
           </div>
         </div>
-        <div class="hint">Each message requires bot verification &middot; Enter to send &middot; Shift+Enter for newline</div>
+        <div class="hint">Verification runs per message &middot; Auto-continue keeps the agent going until it finishes or needs you &middot; Enter to send</div>
       </div>
     </main>
   </div>

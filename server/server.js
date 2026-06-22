@@ -619,9 +619,20 @@ app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
 });
 
 // ===================== Send (manual-captcha, WebSocket) =====================
+// Autonomous-mode directive: appended (via the existing injection path) when the
+// browser has Auto-continue enabled. It teaches the agent the turn protocol so
+// the client can reliably detect completion vs. a genuine question for the user.
+const AUTOCONTINUE_DIRECTIVE =
+  '[AUTONOMOUS MODE] You are running without a human pressing "continue" between turns. ' +
+  'Work straight through the ENTIRE task across as many turns as needed, always resuming exactly where you left off. ' +
+  'Do NOT stop to ask whether you should continue, and do NOT end a turn with offers like "want me to proceed?". ' +
+  'Stop only when ONE of these is true: (a) the whole task is genuinely complete \u2014 then end your FINAL message ' +
+  'with the exact token \u27e6TASK_COMPLETE\u27e7 on its own line; or (b) you truly need a decision or information ' +
+  'from the user before you can proceed \u2014 then ask via the ask_human_input tool and do NOT emit the completion token.';
+
 app.post("/api/send", async (req, res) => {
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue } = req.body || {};
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
   if (!state.gummieId) return res.status(400).json({ error: "No gummie selected." });
@@ -646,6 +657,7 @@ app.post("/api/send", async (req, res) => {
       `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
       `User's request:\n${message}`;
   }
+  if (autocontinue) outgoing = AUTOCONTINUE_DIRECTIVE + "\n\n" + outgoing;
 
   const frame = {
     type: "start",
@@ -720,7 +732,7 @@ app.post("/api/send", async (req, res) => {
 // exact re-render. The conversation (interaction_id) persists across turns just
 // as before; this only changes HOW the turn is delivered.
 app.post("/api/send/stream", async (req, res) => {
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue } = req.body || {};
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
@@ -756,6 +768,7 @@ app.post("/api/send/stream", async (req, res) => {
       `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
       `User's request:\n${message}`;
   }
+  if (autocontinue) outgoing = AUTOCONTINUE_DIRECTIVE + "\n\n" + outgoing;
 
   const frame = {
     type: "start",
@@ -800,8 +813,10 @@ app.post("/api/send/stream", async (req, res) => {
     } catch { /* keep streamText */ }
     logMessage(iid, "user", message, null);
     logMessage(iid, "assistant", reply, null);
+    const pending = Array.isArray(parts) && parts.some((p) => p && p.type === "tool_invocation" && p.toolName === "ask_human_input");
+    const complete = /\u27e6TASK_COMPLETE\u27e7/.test(reply);
     if (wsError) sse("error", { error: wsError });
-    sse("done", { interaction_id: iid, is_new: isNew, reply: reply || "(no text returned)", parts });
+    sse("done", { interaction_id: iid, is_new: isNew, reply: reply || "(no text returned)", parts, pending, complete });
     try { res.end(); } catch {}
   };
 

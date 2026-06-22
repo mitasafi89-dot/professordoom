@@ -29,6 +29,13 @@ let busy = false;
 let currentAbort = null;   // AbortController for the in-flight streaming turn
 let REINJECT_NEXT = false; // re-apply the working contract on the next message
 let SELECTED_SKILL = localStorage.getItem('pd_skill') || '';
+// ---- Auto-continue: keep the agent working turn-after-turn without the user
+// typing "continue". Persisted; capped for safety so it can never run away.
+let AUTO_CONTINUE = localStorage.getItem('pd_autocontinue') === '1';
+const AUTO_CAP = (function () { const n = parseInt(localStorage.getItem('pd_autocap') || '', 10); return Number.isFinite(n) && n > 0 ? n : 25; })();
+let autoRounds = 0;            // consecutive auto-continues in the current run
+let autoStopRequested = false; // set by Stop / toggle-off to break the loop
+let autoLoopActive = false;    // a send()+auto-continue run is in progress
 
 // ---------- helpers ----------
 async function gl(pathAndQuery) {
@@ -39,7 +46,7 @@ async function gl(pathAndQuery) {
 }
 
 function render(text) {
-  const esc = String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = String(text || '').replace(/\u27e6TASK_COMPLETE\u27e7/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const withCode = esc.replace(/```([\s\S]*?)```/g, (_, c) => '<pre><code>' + c.trim() + '</code></pre>');
   const inline = withCode
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -319,55 +326,77 @@ function renderAssistantParts(parts) {
 // hCaptcha is the real server-side check (renders on any domain).
 // The Turnstile sitekey is domain-locked and won't render here; the server only
 // checks that a turnstile token is PRESENT, so we send a placeholder.
-const captcha = { turnstileId: null, hcaptchaId: null, turnstileOk: false };
+const captcha = { turnstileId: null, hcaptchaId: null, hToken: '', pendingResolve: null };
 
+// Verification runs INVISIBLY so a fresh, single-use hCaptcha token can be minted
+// programmatically for every turn (manual or auto-continue) without the user
+// re-clicking. hCaptcha only surfaces a visible challenge when it decides the
+// session needs one; otherwise it passes silently and fires the callback.
 function renderCaptcha() {
   const tk = window.SITEKEYS || {};
-  // hCaptcha — required
   const renderH = () => {
     if (window.hcaptcha && captcha.hcaptchaId === null && tk.hcaptcha) {
-      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'light', size: 'normal',
-        callback: () => setVerified(true),
-        'expired-callback': () => setVerified(false),
-        'error-callback': () => setVerified(false),
-        'chalexpired-callback': () => setVerified(false) }); }
-      catch { setTimeout(renderH, 400); }
+      try {
+        captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', {
+          sitekey: tk.hcaptcha, size: 'invisible', theme: 'light',
+          callback: (tok) => { captcha.hToken = tok || ''; setVerified(true); const r = captcha.pendingResolve; captcha.pendingResolve = null; if (r) r(captcha.hToken); },
+          'expired-callback': () => { captcha.hToken = ''; setVerified(false); },
+          'error-callback': () => { captcha.hToken = ''; setVerified(false); const r = captcha.pendingResolve; captcha.pendingResolve = null; if (r) r(''); },
+          'chalexpired-callback': () => { captcha.hToken = ''; setVerified(false); const r = captcha.pendingResolve; captcha.pendingResolve = null; if (r) r(''); },
+        });
+      } catch { setTimeout(renderH, 400); }
     } else if (!window.hcaptcha) setTimeout(renderH, 400);
   };
   renderH();
-  // Turnstile — best effort; hide gracefully if its sitekey rejects this domain
+  // Turnstile is domain-locked on self-hosted origins; best-effort only. The
+  // server merely checks a token is PRESENT (a placeholder is accepted).
   const renderT = () => {
     const box = document.getElementById('turnstile');
     if (window.turnstile && captcha.turnstileId === null && tk.turnstile) {
-      try {
-        captcha.turnstileId = window.turnstile.render('#turnstile', {
-          sitekey: tk.turnstile, theme: 'light',
-          callback: () => { captcha.turnstileOk = true; },
-          'error-callback': () => { if (box) box.style.display = 'none'; },
-        });
-      } catch { if (box) box.style.display = 'none'; }
+      try { captcha.turnstileId = window.turnstile.render('#turnstile', { sitekey: tk.turnstile, theme: 'light', size: 'invisible', callback: () => {}, 'error-callback': () => { if (box) box.style.display = 'none'; } }); }
+      catch { if (box) box.style.display = 'none'; }
     } else if (!window.turnstile) setTimeout(renderT, 400);
   };
   renderT();
 }
 
-function getCaptchaTokens() {
-  let t = '', h = '';
-  try { if (window.turnstile && captcha.turnstileId !== null) t = window.turnstile.getResponse(captcha.turnstileId) || ''; } catch {}
-  try { if (window.hcaptcha && captcha.hcaptchaId !== null) h = window.hcaptcha.getResponse(captcha.hcaptchaId) || ''; } catch {}
-  return { turnstile_token: t, hcaptcha_token: h };
+function turnstileToken() {
+  try { return (window.turnstile && captcha.turnstileId !== null) ? (window.turnstile.getResponse(captcha.turnstileId) || '') : ''; } catch { return ''; }
 }
 
-function resetCaptcha() {
-  try { if (window.turnstile && captcha.turnstileId !== null) window.turnstile.reset(captcha.turnstileId); } catch {}
-  try { if (window.hcaptcha && captcha.hcaptchaId !== null) window.hcaptcha.reset(captcha.hcaptchaId); } catch {}
-  setVerified(false);
+// Mint a FRESH verification token for one turn. Resolves with the hCaptcha token
+// (empty string if it couldn't be obtained) plus a best-effort Turnstile token.
+// Used identically for a manual send and for every auto-continue round.
+function executeCaptcha() {
+  return new Promise((resolve) => {
+    try { if (window.turnstile && captcha.turnstileId !== null) window.turnstile.reset(captcha.turnstileId); } catch {}
+    try { if (window.turnstile && captcha.turnstileId !== null) window.turnstile.execute(captcha.turnstileId); } catch {}
+    if (!window.hcaptcha || captcha.hcaptchaId === null) { resolve({ hcaptcha_token: '', turnstile_token: turnstileToken() }); return; }
+    let settled = false;
+    const finish = (tok) => { if (settled) return; settled = true; captcha.pendingResolve = null; resolve({ hcaptcha_token: tok || '', turnstile_token: turnstileToken() }); };
+    captcha.pendingResolve = finish;
+    try { window.hcaptcha.reset(captcha.hcaptchaId); } catch {}
+    try { window.hcaptcha.execute(captcha.hcaptchaId); } catch { finish(''); }
+    setTimeout(() => finish(''), 90000); // challenge ignored/blocked -> give up gracefully
+  });
 }
 
-// Collapse the verification bar to a slim "✓ verified" chip once solved.
+// Collapse the verification bar to a slim "verified" state once a token exists.
 function setVerified(ok) {
   const bar = document.getElementById('captchaBar');
   if (bar) bar.classList.toggle('solved', !!ok);
+}
+
+// Small status line for the auto-continue loop.
+function showAutoNote(msg, sticky) {
+  const el = document.getElementById('autoNote');
+  if (!el) return;
+  el.textContent = msg; el.style.display = '';
+  el.classList.toggle('done', !!sticky);
+}
+function clearAutoNote() {
+  const el = document.getElementById('autoNote');
+  if (el) { el.textContent = ''; el.style.display = 'none'; el.classList.remove('done'); }
 }
 
 // ---------- send (LIVE streaming over SSE) ----------
@@ -451,7 +480,7 @@ function setSendingUI(on) {
 
 // Cancel the in-flight turn. Aborting the fetch closes the SSE connection, which
 // makes the server tear down its upstream Gumloop WebSocket.
-function stopTurn() { if (currentAbort) { try { currentAbort.abort(); } catch {} } }
+function stopTurn() { autoStopRequested = true; clearAutoNote(); if (currentAbort) { try { currentAbort.abort(); } catch {} } }
 
 // If the stream drops unexpectedly (network), the turn may still finish on the
 // server. Recover the completed turn from the REST interaction with a few polls.
@@ -474,33 +503,36 @@ async function recoverTurn(bubble, live) {
   return false;
 }
 
-async function send() {
-  const text = inputEl.value.trim();
-  if (!text || busy) return;
+// Run exactly ONE turn: mint a fresh captcha token, stream the agent's turn
+// live, and return its outcome so the auto-continue loop can decide what's next.
+async function runTurn(text, opts) {
+  opts = opts || {};
+  const outcome = { pending: false, complete: false, error: false, stopped: false, sent: false };
 
-  const { turnstile_token, hcaptcha_token } = getCaptchaTokens();
+  const { hcaptcha_token, turnstile_token } = await executeCaptcha();
   if (!hcaptcha_token) {
-    flash('Complete the "I am human" check above before sending.');
-    return;
+    flash('Could not get a verification token \u2014 complete the human check to continue.');
+    return outcome;
   }
   // Turnstile is domain-locked; the server only checks token presence.
   const turnstile = turnstile_token || 'na';
+  outcome.sent = true;
 
   busy = true;
   const abort = new AbortController();
   currentAbort = abort;
   setSendingUI(true);
   if (emptyEl) emptyEl.remove();
-  addMessage('user', text);
-  inputEl.value = ''; autoGrow();
+  const ub = addMessage('user', text);
+  if (opts.auto && ub) { const m = ub.closest('.msg'); if (m) m.classList.add('auto-msg'); }
+  if (!opts.auto) { inputEl.value = ''; autoGrow(); }
 
   const bubble = addRichMessage('', SELECTED_MODEL.label);
-  const live = { steps: [], answer: '', status: 'Connecting…' };
+  const live = { steps: [], answer: '', status: 'Connecting\u2026' };
   renderLive(bubble, live);
   threadEl.scrollTop = threadEl.scrollHeight;
 
-  // On-demand contract re-injection: applies on a new conversation OR when the
-  // user changed the working skill mid-conversation.
+  // On-demand contract re-injection (new conversation or skill changed mid-chat).
   const reinject = REINJECT_NEXT; REINJECT_NEXT = false; updateSkillNote();
 
   let finished = false;
@@ -516,12 +548,13 @@ async function send() {
         hcaptcha_token,
         skill: SELECTED_SKILL || '',
         reinject,
+        autocontinue: AUTO_CONTINUE,
       }),
     });
     if (!resp.ok || !resp.body) {
       const t = await resp.text(); let d = {}; try { d = JSON.parse(t); } catch {}
       bubble.innerHTML = render('**Send failed.** ' + (d.error || t));
-      finished = true;
+      outcome.error = true; finished = true;
     } else {
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
@@ -538,17 +571,19 @@ async function send() {
           const stick = atBottom();
           if (event === 'start' && obj) {
             if (obj.interaction_id) CURRENT_INTERACTION = obj.interaction_id;
-            live.status = 'Thinking…'; renderLive(bubble, live);
+            live.status = 'Thinking\u2026'; renderLive(bubble, live);
           } else if (event === 'frame' && obj) {
             applyFrame(obj, live); renderLive(bubble, live);
           } else if (event === 'error' && obj) {
+            outcome.error = true;
             live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Error:** ' + (obj.error || 'unknown');
             renderLive(bubble, live);
           } else if (event === 'done' && obj) {
             finished = true;
+            outcome.pending = !!obj.pending;
+            outcome.complete = !!obj.complete;
             if (obj.parts && obj.parts.length) bubble.innerHTML = renderAssistantParts(obj.parts);
             else bubble.innerHTML = render(obj.reply || live.answer || '(no text returned)');
-            if (obj.is_new) { convNameEl.textContent = convNameEl.textContent || 'Conversation'; }
             loadConversations();
           }
           if (stick) threadEl.scrollTop = threadEl.scrollHeight;
@@ -557,27 +592,62 @@ async function send() {
     }
   } catch (e) {
     if (e && e.name === 'AbortError') {
-      // User pressed Stop — keep whatever streamed so far, mark it stopped.
-      finished = true; live.status = '';
+      outcome.stopped = true; finished = true; live.status = '';
       if (live.steps.length || live.answer) {
         renderLive(bubble, live);
-        bubble.insertAdjacentHTML('beforeend', '<div class="live-status stopped">⏹ Stopped</div>');
+        bubble.insertAdjacentHTML('beforeend', '<div class="live-status stopped">\u23f9 Stopped</div>');
       } else {
         bubble.innerHTML = render('_Stopped before any output._');
       }
     } else if (!finished) {
-      // Unexpected drop mid-stream — try to recover the finished turn from REST.
       const recovered = await recoverTurn(bubble, live);
-      if (!recovered) { live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Connection lost.** ' + e.message; renderLive(bubble, live); }
+      if (!recovered) { outcome.error = true; live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Connection lost.** ' + e.message; renderLive(bubble, live); }
       finished = true;
     }
   } finally {
     if (!finished && !live.answer && !live.steps.length) bubble.innerHTML = render('**No response received.** The connection closed before any output.');
     currentAbort = null;
     setSendingUI(false);
-    resetCaptcha(); // tokens are single-use — force a fresh solve per message
     threadEl.scrollTop = threadEl.scrollHeight;
-    busy = false; inputEl.focus();
+    busy = false;
+  }
+  return outcome;
+}
+
+// Composer entry point. Sends the user's message, then \u2014 if Auto-continue is ON
+// \u2014 keeps the agent working ("continue") turn after turn until it finishes
+// (\u27e6TASK_COMPLETE\u27e7), asks the user something (ask_human_input), errors, is
+// stopped, or hits the safety cap. No manual "continue" typing required.
+async function send() {
+  if (busy || autoLoopActive) return;
+  const first = inputEl.value.trim();
+  if (!first) return;
+
+  autoRounds = 0; autoStopRequested = false; autoLoopActive = true;
+  try {
+    let outcome = await runTurn(first, { auto: false });
+    if (!outcome.sent) return;
+
+    while (AUTO_CONTINUE && !autoStopRequested
+           && !outcome.stopped && !outcome.error && !outcome.pending && !outcome.complete) {
+      if (autoRounds >= AUTO_CAP) {
+        showAutoNote('Auto-continue paused after ' + AUTO_CAP + ' rounds \u2014 press Send to keep going.', true);
+        return;
+      }
+      autoRounds++;
+      showAutoNote('Auto-continuing\u2026 round ' + autoRounds + '/' + AUTO_CAP + ' \u00b7 press Stop to end');
+      await new Promise((r) => setTimeout(r, 500));
+      if (autoStopRequested) break;
+      outcome = await runTurn('continue', { auto: true });
+    }
+
+    if (outcome.complete) showAutoNote('\u2713 Task complete.', true);
+    else if (outcome.pending) showAutoNote('Paused \u2014 the agent needs your input. Reply below.', true);
+    else clearAutoNote();
+  } finally {
+    autoLoopActive = false;
+    setSendingUI(false);
+    inputEl.focus();
   }
 }
 
@@ -593,7 +663,7 @@ function flash(msg) {
 function autoGrow() { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px'; }
 inputEl.addEventListener('input', autoGrow);
 inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-sendBtn.addEventListener('click', () => { if (busy) stopTurn(); else send(); });
+sendBtn.addEventListener('click', () => { if (busy || autoLoopActive) stopTurn(); else send(); });
 $('newChat').addEventListener('click', () => {
   CURRENT_INTERACTION = null;
   convNameEl.textContent = 'New chat';
@@ -637,6 +707,18 @@ if (skillSelectEl) {
     updateSkillNote();
   });
 }
+
+// ---------- auto-continue toggle ----------
+(function wireAutoContinue() {
+  const t = $('autoToggle');
+  if (!t) return;
+  t.checked = AUTO_CONTINUE;
+  t.addEventListener('change', () => {
+    AUTO_CONTINUE = t.checked;
+    localStorage.setItem('pd_autocontinue', AUTO_CONTINUE ? '1' : '0');
+    if (!AUTO_CONTINUE) { autoStopRequested = true; clearAutoNote(); }
+  });
+})();
 
 // ---------- boot ----------
 // Live filtering of the conversation list (input is persistent, so focus is kept).
