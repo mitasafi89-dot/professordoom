@@ -1,48 +1,25 @@
 # ProfessorDoom
 
-A professional, custom web UI on top of a **Gumloop session**. You paste your Gumloop session credentials into the admin dashboard; the server holds them in memory only and transparently proxies the browser's calls to `https://api.gumloop.com`, injecting your credentials. The frontend speaks the real Gumloop API (model picker, conversation list, message threads) and never sees the secrets.
+A professional, custom web UI on top of a **Gumloop session**. The back-engine is your own Gumloop account (models up to **Claude 4.8 Opus**). You store a Firebase **refresh token** in the admin dashboard; the server mints short-lived `id_token`s from it, proxies your REST reads, and sends chat messages over Gumloop's WebSocket. Secrets stay server-side.
 
-> ⚠️ Driving a Gumloop session programmatically may conflict with Gumloop's terms of service, and session credentials expire frequently. You are responsible for your own account. See **Security & limitations** below.
+> The full reverse-engineered protocol is documented in **[PROTOCOL.md](PROTOCOL.md)**.
 
-## Architecture
+## How it works
 
 ```
-Browser (chat UI)  ──►  Express proxy  ──►  https://api.gumloop.com
-   model picker          injects:               (your account)
-   conversation list      x-auth-key
-   message threads        cookie
-   composer               origin / referer
-Admin dashboard ────────► holds credentials server-side only
+Browser (chat UI)            Express server                 Gumloop
+ model picker / threads  ──►  mint id_token (refresh) ──►   api.gumloop.com (REST reads)
+ Turnstile + hCaptcha    ──►  open WebSocket + send   ──►   ws.gumloop.com/ws/gummies
+ (solved per message)         (forwards captcha tokens)
 ```
 
-## Gumloop API surface (decoded from a captured session)
+- **Auth** — a Firebase refresh token (project `agenthub-dev`) is held server-side; `id_token`s (60-min) are minted on demand.
+- **Reading** — `/api/gl/*` transparently proxies any `api.gumloop.com` endpoint with your bearer token injected.
+- **Sending** — `/api/send` mints a token, opens `wss://ws.gumloop.com/ws/gummies`, and sends a `start` frame with your message + the captcha tokens the UI collected. The final reply is fetched authoritatively from `GET /gummie_interactions/{id}`.
 
-| Purpose | Request |
-|---|---|
-| Auth | header `x-auth-key: <your user id>` + session `cookie` |
-| Required headers | `origin: https://www.gumloop.com`, `referer: https://www.gumloop.com/`, `content-type: application/json` |
-| Model list | `GET /allowed_gummies_models` |
-| Your agents | `GET /gummies` · `GET /gummies/{id}` |
-| Conversation list | `GET /gummies/{id}/chat?page_size=24&sort_order=newest` |
-| Message thread | `GET /gummie_interactions/{interaction_id}` → `interaction.messages[]` |
-| Live queue | `GET /gummie_interactions/{id}/queue` |
-| Profile / project | `GET /user_profile` · `GET /project` |
-| **Send a message** | **Not in the sample capture — configure it in Admin (see below).** |
+## ⚠️ The captcha reality
 
-Models available through the session include **Claude 4.8 Opus** (`claude-opus-4-8`, selector value `gummies_smartest`), the full Anthropic/OpenAI/Google/DeepSeek/etc. line-up, plus the Auto group (Recommended / Smartest / Fastest). The live list is fetched from `/allowed_gummies_models`; `public/models.json` is a bundled fallback.
-
-### Message shape
-
-```jsonc
-{
-  "role": "user",      "content": "Hi", "parts": []
-}
-{
-  "role": "assistant", "models": ["claude-opus-4-8"],
-  "parts": [ { "type": "text", "text": "Hi Rashdra! ...", "streamChunkType": "text-end" } ],
-  "usage": { ... }, "totalCredits": 78.0
-}
-```
+Gumloop enforces **bot verification on every message** — Cloudflare **Turnstile** *and* **hCaptcha** — server-side. These tokens are single-use and can only be produced by a real browser solving the challenge. So ProfessorDoom renders both widgets in the composer; **you solve them for each message** and the tokens are forwarded over the WebSocket. There is no fully-automated send path (verified empirically — see PROTOCOL.md).
 
 ## Run locally
 
@@ -50,41 +27,35 @@ Models available through the session include **Claude 4.8 Opus** (`claude-opus-4
 npm install
 cp .env.example .env   # optional
 npm start
-# open http://localhost:3000  →  go to /admin.html to paste your session
+# open http://localhost:3000  →  /admin.html to paste your refresh token
 ```
 
-## Configure the session (admin dashboard)
+## Configure (admin dashboard)
 
 1. Open `/admin.html`, enter the admin password.
-2. Paste your **x-auth-key** (your Gumloop user id) and the full **session cookie** string.
-3. Set the **Gummie ID** of the agent you want to drive.
-4. Save. The chat UI now lists your conversations and renders message threads live.
+2. Paste your Firebase **refresh token** (`stsTokenManager.refreshToken` from DevTools → Application → IndexedDB → `firebaseLocalStorageDb`).
+3. Set the **Gummie ID** of the agent to drive.
+4. Click **Verify session** to confirm it mints a token and authenticates.
 
-### Enabling "send"
-
-The send-message request was not in the sample HAR. To enable sending:
-
-1. Open Gumloop, open DevTools → Network (Fetch/XHR), send one message.
-2. Find the request that carries your prompt. Note its **method**, **path**, and **body**.
-3. In Admin → *Advanced: send-message endpoint*, set the method and path (use `{gummieId}` as a placeholder, e.g. `gummies/{gummieId}/start`).
-4. If the body shape differs from `{ message, model, interaction_id }`, tell the maintainer so `app.js`/`/api/send` can be aligned to it.
+Then on the chat page: pick a conversation (or New chat), solve the verification widgets, type, and send.
 
 ## Security & limitations
 
-- Credentials live **only in server memory** and are never returned to any client (the frontend reads a boolean status only). Use *Clear stored session* in Admin to wipe them.
-- **Sessions expire** (often within hours). When calls start returning `401/403`, re-paste a fresh cookie.
-- This replays your logged-in session against an undocumented internal API; it is **brittle by design** and may violate Gumloop's ToS.
-- **Change `ADMIN_PASSWORD`** before deploying anywhere public. Never commit your `.env` (git-ignored).
+- The refresh token lives **only in server memory** and is never returned to any client. Use *Clear stored session* to wipe it.
+- Refresh tokens are revoked when you sign out of Gumloop; re-paste a new one when verification fails.
+- This replays your logged-in session against an undocumented internal API and **may conflict with Gumloop's terms of service**. You are responsible for your own account.
+- **Change `ADMIN_PASSWORD`** before deploying. Never commit `.env` (git-ignored).
 
 ## Project layout
 
 ```
-server/server.js   Express proxy + admin endpoints
-public/index.html  chat client (sidebar, model picker, thread, composer)
-public/app.js       client logic
-public/admin.html   session dashboard
+server/server.js   Express: token minting, REST proxy, WebSocket send
+public/index.html  chat client (sidebar, model picker, thread, captcha composer)
+public/app.js       client logic + captcha widgets
+public/admin.html   session dashboard (refresh token, verify)
 public/styles.css   UI styling
 public/models.json  fallback model list
+PROTOCOL.md         reverse-engineered Gumloop protocol
 Manuscript-Writing-Contract.docx + server/contract.txt   committed contract
 ```
 

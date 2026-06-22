@@ -51,10 +51,10 @@ async function refreshStatus() {
     const r = await fetch('/api/status');
     const s = await r.json();
     GUMMIE_ID = s.gummieId || '';
-    SEND_CONFIGURED = s.sendConfigured;
+    window.SITEKEYS = { turnstile: s.turnstileSiteKey, hcaptcha: s.hcaptchaSiteKey };
     if (!s.configured) {
       bannerEl.className = 'banner show';
-      bannerEl.innerHTML = 'Session not configured. An admin must paste Gumloop credentials in the <a href="admin.html">admin dashboard</a>.';
+      bannerEl.innerHTML = 'Session not configured. An admin must paste the Gumloop refresh token in the <a href="admin.html">admin dashboard</a>.';
       return false;
     }
     if (!GUMMIE_ID) {
@@ -62,12 +62,7 @@ async function refreshStatus() {
       bannerEl.innerHTML = 'No agent selected. Set a <strong>Gummie ID</strong> in the <a href="admin.html">admin dashboard</a>.';
       return false;
     }
-    if (!SEND_CONFIGURED) {
-      bannerEl.className = 'banner show warn';
-      bannerEl.innerHTML = 'Browsing is live. <strong>Sending</strong> needs the send endpoint — capture a "send message" request in DevTools and set it in <a href="admin.html">Admin</a>.';
-    } else {
-      bannerEl.className = 'banner';
-    }
+    bannerEl.className = 'banner';
     return true;
   } catch {
     bannerEl.className = 'banner show';
@@ -190,10 +185,50 @@ function addMessage(role, text, modelTag) {
   return wrap.querySelector('.bubble');
 }
 
+// ---------- captcha ----------
+const captcha = { turnstileId: null, hcaptchaId: null, ready: false };
+
+function renderCaptcha() {
+  const tk = window.SITEKEYS || {};
+  const tryRender = () => {
+    let ok = true;
+    if (window.turnstile && captcha.turnstileId === null && tk.turnstile) {
+      try { captcha.turnstileId = window.turnstile.render('#turnstile', { sitekey: tk.turnstile, theme: 'dark', size: 'flexible' }); }
+      catch { ok = false; }
+    } else if (!window.turnstile) ok = false;
+    if (window.hcaptcha && captcha.hcaptchaId === null && tk.hcaptcha) {
+      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'dark', size: 'compact' }); }
+      catch { ok = false; }
+    } else if (!window.hcaptcha) ok = false;
+    if (!ok) setTimeout(tryRender, 400);
+    else captcha.ready = true;
+  };
+  tryRender();
+}
+
+function getCaptchaTokens() {
+  let t = '', h = '';
+  try { if (window.turnstile && captcha.turnstileId !== null) t = window.turnstile.getResponse(captcha.turnstileId) || ''; } catch {}
+  try { if (window.hcaptcha && captcha.hcaptchaId !== null) h = window.hcaptcha.getResponse(captcha.hcaptchaId) || ''; } catch {}
+  return { turnstile_token: t, hcaptcha_token: h };
+}
+
+function resetCaptcha() {
+  try { if (window.turnstile && captcha.turnstileId !== null) window.turnstile.reset(captcha.turnstileId); } catch {}
+  try { if (window.hcaptcha && captcha.hcaptchaId !== null) window.hcaptcha.reset(captcha.hcaptchaId); } catch {}
+}
+
 // ---------- send ----------
 async function send() {
   const text = inputEl.value.trim();
   if (!text || busy) return;
+
+  const { turnstile_token, hcaptcha_token } = getCaptchaTokens();
+  if (!turnstile_token) {
+    flash('Solve the verification above before sending.');
+    return;
+  }
+
   busy = true; sendBtn.disabled = true;
   if (emptyEl) emptyEl.remove();
   addMessage('user', text);
@@ -207,29 +242,36 @@ async function send() {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        gummie_id: GUMMIE_ID,
         interaction_id: CURRENT_INTERACTION,
-        model: SELECTED_MODEL.value,
         message: text,
+        turnstile_token,
+        hcaptcha_token,
       }),
     });
     const txt = await r.text();
+    let data; try { data = JSON.parse(txt); } catch { data = {}; }
     if (!r.ok) {
-      let msg = txt;
-      try { msg = JSON.parse(txt).error || txt; } catch {}
-      bubble.innerHTML = render('**Send not available yet.** ' + msg);
+      bubble.innerHTML = render('**Send failed.** ' + (data.error || txt));
     } else {
-      let data; try { data = JSON.parse(txt); } catch { data = { reply: txt }; }
-      const reply = data.reply || partsToText(data) || JSON.stringify(data).slice(0, 400);
-      bubble.innerHTML = render(reply);
+      if (data.interaction_id) CURRENT_INTERACTION = data.interaction_id;
+      bubble.innerHTML = render(data.reply || '(no text returned)');
       loadConversations();
     }
   } catch (e) {
     bubble.innerHTML = render('**Error:** ' + e.message);
   } finally {
+    resetCaptcha(); // tokens are single-use — force a fresh solve per message
     threadEl.scrollTop = threadEl.scrollHeight;
     busy = false; sendBtn.disabled = false; inputEl.focus();
   }
+}
+
+function flash(msg) {
+  const h = document.querySelector('.hint');
+  if (!h) return;
+  const prev = h.textContent;
+  h.textContent = msg; h.style.color = 'var(--accent-hover)';
+  setTimeout(() => { h.textContent = prev; h.style.color = ''; }, 3000);
 }
 
 // ---------- composer ----------
@@ -249,6 +291,7 @@ $('newChat').addEventListener('click', () => {
 (async function init() {
   const ok = await refreshStatus();
   if (ok) {
+    renderCaptcha();
     loadProfile();
     await loadModels();
     await loadConversations();

@@ -1,7 +1,7 @@
 {
   "name": "professordoom",
   "version": "1.0.0",
-  "description": "ProfessorDoom \u2014 an adversarial scholarly manuscript reviewer powered by Claude.",
+  "description": "ProfessorDoom — an adversarial scholarly manuscript reviewer powered by Claude.",
   "main": "server/server.js",
   "type": "commonjs",
   "scripts": {
@@ -12,7 +12,8 @@
     "node": ">=18"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "ws": "^8.21.0"
   },
   "license": "MIT"
 }

@@ -19,7 +19,7 @@
         </div>
       </div>
       <h2>Gumloop session</h2>
-      <p class="lead">Paste your Gumloop session credentials. They are held <strong>server-side only</strong> and are never returned to any browser — the app proxies your calls to <code>api.gumloop.com</code> with these injected.</p>
+      <p class="lead">Paste your Firebase <strong>refresh token</strong> (project <code>agenthub-dev</code>). It is held <strong>server-side only</strong>; the server mints short-lived <code>id_token</code>s from it to read your data and send messages. The browser never sees it.</p>
 
       <div id="statusline" class="statusline">Status: checking…</div>
 
@@ -28,43 +28,21 @@
         <input id="password" type="password" placeholder="admin password" autocomplete="off" />
       </div>
       <div class="field">
-        <label for="authKey">x-auth-key <span class="label-hint">(your Gumloop user id — from the request headers)</span></label>
-        <input id="authKey" type="password" placeholder="e.g. 2u7t0Rr..." autocomplete="off" />
+        <label for="refreshToken">Firebase refresh token <span class="label-hint">(stsTokenManager.refreshToken — DevTools → Application → IndexedDB → firebaseLocalStorageDb)</span></label>
+        <textarea id="refreshToken" placeholder="AMf-vB..."></textarea>
       </div>
       <div class="field">
-        <label for="cookie">Session cookie <span class="label-hint">(full cookie string from a Gumloop request)</span></label>
-        <textarea id="cookie" placeholder="paste the entire Cookie: header value"></textarea>
-      </div>
-      <div class="field">
-        <label for="gummieId">Gummie ID <span class="label-hint">(which agent to drive — from /gummies/&lt;id&gt;)</span></label>
+        <label for="gummieId">Gummie ID <span class="label-hint">(which agent to drive)</span></label>
         <input id="gummieId" type="text" placeholder="e.g. 36L7WDxBd9NTmRifXSzZq3" />
       </div>
 
-      <details class="collapsible">
-        <summary>Advanced: send-message endpoint</summary>
-        <p class="lead" style="margin:12px 0">The sample HAR didn't include a send request. Capture one in DevTools (send a message with the Network tab open), then set its path and method here. Use <code>{gummieId}</code> as a placeholder.</p>
-        <div class="row">
-          <div class="field">
-            <label for="sendMethod">Method</label>
-            <input id="sendMethod" type="text" placeholder="POST" />
-          </div>
-          <div class="field">
-            <label for="sendPath">Path</label>
-            <input id="sendPath" type="text" placeholder="gummies/{gummieId}/start" />
-          </div>
-        </div>
-        <div class="field">
-          <label for="userAgent">User-Agent (optional)</label>
-          <input id="userAgent" type="text" placeholder="leave blank for default Chrome UA" />
-        </div>
-      </details>
-
       <button id="save" class="btn-primary">Save session</button>
+      <button id="verify" class="btn-primary" style="background:transparent;border:1px solid var(--gold);color:var(--gold);margin-top:10px">Verify session (mint a token now)</button>
       <button id="clear" class="btn-primary" style="background:transparent;border:1px solid var(--border);margin-top:10px;color:var(--text-dim)">Clear stored session</button>
       <div id="notice" class="notice"></div>
 
       <div class="warn">
-        Session credentials expire — when sending starts returning auth errors, re-paste a fresh cookie here. Using a Gumloop session this way may conflict with Gumloop's terms of service; you are responsible for your own account. Change the default admin password via <code>ADMIN_PASSWORD</code> before deploying.
+        Refresh tokens are long-lived but can be revoked by signing out of Gumloop. Sending each message still requires solving the in-app bot-verification widgets (Cloudflare Turnstile + hCaptcha) — Gumloop enforces this server-side and it cannot be automated. Change the default admin password via <code>ADMIN_PASSWORD</code> before deploying.
       </div>
       <p style="margin-top:18px"><a href="index.html" style="color:var(--gold);font-size:13px">← Back to chat</a></p>
     </div>

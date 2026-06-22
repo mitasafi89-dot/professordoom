@@ -7,6 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  <script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
 </head>
 <body>
   <div class="app">
@@ -61,6 +63,11 @@
 
       <div class="composer">
         <div class="composer-inner">
+          <div id="captchaBar" class="captcha-bar">
+            <span class="captcha-label">Verify to send</span>
+            <div id="turnstile"></div>
+            <div id="hcaptcha"></div>
+          </div>
           <div class="composer-box">
             <textarea id="input" rows="1" placeholder="Message ProfessorDoom…"></textarea>
             <button id="send" class="send-btn" title="Send">
@@ -68,7 +75,7 @@
             </button>
           </div>
         </div>
-        <div class="hint">Runs through your Gumloop session · Enter to send · Shift+Enter for newline</div>
+        <div class="hint">Each message requires bot verification (Gumloop enforces it server-side) · Enter to send · Shift+Enter for newline</div>
       </div>
     </main>
   </div>
