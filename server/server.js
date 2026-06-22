@@ -654,7 +654,7 @@ const AUTOCONTINUE_DIRECTIVE =
 
 app.post("/api/send", async (req, res) => {
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue, attachments } = req.body || {};
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
   if (!state.gummieId) return res.status(400).json({ error: "No gummie selected." });
@@ -678,6 +678,18 @@ app.post("/api/send", async (req, res) => {
       `Treat every rule in it as authoritative for the entire conversation.\n\n` +
       `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
       `User's request:\n${message}`;
+  }
+  // Append any user-uploaded files, extracted to plain text (docx/pdf/txt/…).
+  if (Array.isArray(attachments) && attachments.length) {
+    const blocks = [];
+    for (const a of attachments) {
+      try {
+        const buf = Buffer.from((a && a.contentBase64) || "", "base64");
+        const text = (await extractText((a && a.filename) || "", buf)).trim();
+        if (text) blocks.push(`----- ATTACHED FILE: ${(a && a.filename) || "file"} -----\n${text}`);
+      } catch (e) { /* skip unreadable attachment */ }
+    }
+    if (blocks.length) outgoing += `\n\nThe user attached the following file(s):\n\n${blocks.join("\n\n")}`;
   }
   if (autocontinue) outgoing = AUTOCONTINUE_DIRECTIVE + "\n\n" + outgoing;
 
@@ -754,7 +766,7 @@ app.post("/api/send", async (req, res) => {
 // exact re-render. The conversation (interaction_id) persists across turns just
 // as before; this only changes HOW the turn is delivered.
 app.post("/api/send/stream", async (req, res) => {
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue, attachments } = req.body || {};
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
@@ -789,6 +801,18 @@ app.post("/api/send/stream", async (req, res) => {
       `Treat every rule in it as authoritative for the entire conversation.\n\n` +
       `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
       `User's request:\n${message}`;
+  }
+  // Append any user-uploaded files, extracted to plain text (docx/pdf/txt/…).
+  if (Array.isArray(attachments) && attachments.length) {
+    const blocks = [];
+    for (const a of attachments) {
+      try {
+        const buf = Buffer.from((a && a.contentBase64) || "", "base64");
+        const text = (await extractText((a && a.filename) || "", buf)).trim();
+        if (text) blocks.push(`----- ATTACHED FILE: ${(a && a.filename) || "file"} -----\n${text}`);
+      } catch (e) { /* skip unreadable attachment */ }
+    }
+    if (blocks.length) outgoing += `\n\nThe user attached the following file(s):\n\n${blocks.join("\n\n")}`;
   }
   if (autocontinue) outgoing = AUTOCONTINUE_DIRECTIVE + "\n\n" + outgoing;
 

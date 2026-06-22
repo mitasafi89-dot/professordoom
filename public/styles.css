@@ -845,3 +845,35 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
   .splash-word, .splash-tag { opacity: 1; }
   .splash-logo .sonar { display: none; }
 }
+
+
+/* ============================================================
+   Composer file attachments
+   ============================================================ */
+.file-input { display: none; }
+.attach-btn {
+  width: 42px; height: 42px; flex: 0 0 auto; border-radius: 11px;
+  border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-dim);
+  cursor: pointer; display: grid; place-items: center;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, transform .05s ease;
+}
+.attach-btn:hover { background: var(--surface-3); color: var(--brand); border-color: var(--border-strong); }
+.attach-btn:active { transform: scale(.96); }
+.attach-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.attach-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.attach-list[hidden] { display: none; }
+.attach-chip {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 280px;
+  padding: 7px 8px 7px 11px; background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-xs); font-size: 13px; color: var(--text);
+}
+.attach-chip .ac-ico { color: var(--brand); flex: 0 0 auto; display: grid; place-items: center; }
+.attach-chip .ac-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.attach-chip .ac-size { color: var(--text-faint); flex: 0 0 auto; }
+.attach-chip .ac-rm {
+  flex: 0 0 auto; width: 20px; height: 20px; display: grid; place-items: center;
+  border: none; background: transparent; color: var(--text-faint); cursor: pointer; border-radius: 6px;
+  transition: background .15s ease, color .15s ease;
+}
+.attach-chip .ac-rm:hover { background: var(--red-soft); color: var(--red); }

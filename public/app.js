@@ -555,7 +555,8 @@ async function runTurn(text, opts) {
   const emptyNow = threadInner.querySelector('.empty');
   if (emptyNow) emptyNow.remove();
   if (emptyEl) emptyEl.remove();
-  const ub = addMessage('user', text);
+  const ub = addMessage('user', text + (!opts.auto && ATTACHMENTS.length ? '\n\n\u{1F4CE} ' + ATTACHMENTS.map((a) => a.filename).join(', ') : ''));
+  if (!opts.auto && ATTACHMENTS.length) { ATTACHMENTS = []; renderAttachments(); }
   if (opts.auto && ub) { const m = ub.closest('.msg'); if (m) m.classList.add('auto-msg'); }
   if (!opts.auto) { inputEl.value = ''; autoGrow(); }
 
@@ -581,6 +582,7 @@ async function runTurn(text, opts) {
         skill: SELECTED_SKILL || '',
         reinject,
         autocontinue: AUTO_CONTINUE,
+        attachments: opts.auto ? [] : ATTACHMENTS.map((a) => ({ filename: a.filename, contentBase64: a.contentBase64 })),
       }),
     });
     if (!resp.ok || !resp.body) {
@@ -653,11 +655,12 @@ async function runTurn(text, opts) {
 async function send() {
   if (busy || autoLoopActive) return;
   const first = inputEl.value.trim();
-  if (!first) return;
+  if (!first && !ATTACHMENTS.length) return;
+  const firstMsg = first || 'Please review the attached file(s).';
 
   autoRounds = 0; autoStopRequested = false; autoLoopActive = true;
   try {
-    let outcome = await runTurn(first, { auto: false });
+    let outcome = await runTurn(firstMsg, { auto: false });
     if (!outcome.sent) return;
 
     while (AUTO_CONTINUE && !autoStopRequested
@@ -832,4 +835,65 @@ if (skillSelectEl) {
   if (document.readyState === 'complete') hide();
   else window.addEventListener('load', hide, { once: true });
   setTimeout(hide, MAX_MS);
+})();
+
+
+// ---------- composer file attachments ----------
+let ATTACHMENTS = [];
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+function renderAttachments() {
+  const listEl = document.getElementById('attachList');
+  if (!listEl) return;
+  if (!ATTACHMENTS.length) { listEl.hidden = true; listEl.innerHTML = ''; return; }
+  listEl.hidden = false;
+  listEl.innerHTML = ATTACHMENTS.map((a, idx) =>
+    '<span class="attach-chip">'
+    + '<span class="ac-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>'
+    + '<span class="ac-name">' + escH(a.filename) + '</span>'
+    + '<span class="ac-size">' + fmtBytes(a.size) + '</span>'
+    + '<button class="ac-rm" type="button" data-idx="' + idx + '" title="Remove" aria-label="Remove attachment">'
+    + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+    + '</button></span>'
+  ).join('');
+}
+(function wireAttachments() {
+  const fileInput = document.getElementById('fileInput');
+  const attachBtn = document.getElementById('attachBtn');
+  const listEl = document.getElementById('attachList');
+  if (!fileInput || !attachBtn) return;
+  const MAX_FILES = 8;
+  const MAX_TOTAL = 5 * 1024 * 1024; // 5 MB raw -> well under the server's 8 MB JSON limit after base64
+
+  const fileToB64 = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); const i = s.indexOf(','); resolve(i >= 0 ? s.slice(i + 1) : s); };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+
+  attachBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const files = [...fileInput.files];
+    fileInput.value = '';
+    for (const f of files) {
+      if (ATTACHMENTS.length >= MAX_FILES) { flash('You can attach up to ' + MAX_FILES + ' files.'); break; }
+      const total = ATTACHMENTS.reduce((s, a) => s + a.size, 0);
+      if (total + f.size > MAX_TOTAL) { flash('Attachments exceed the 5 MB total limit.'); break; }
+      try {
+        const contentBase64 = await fileToB64(f);
+        ATTACHMENTS.push({ filename: f.name, size: f.size, contentBase64 });
+      } catch (e) { flash('Could not read ' + f.name); }
+    }
+    renderAttachments();
+  });
+  if (listEl) listEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ac-rm');
+    if (!btn) return;
+    const idx = parseInt(btn.getAttribute('data-idx'), 10);
+    if (!isNaN(idx)) { ATTACHMENTS.splice(idx, 1); renderAttachments(); }
+  });
 })();
