@@ -44,14 +44,17 @@ const server = http.createServer((req, res) => {
   if (p === "/user_profile") return j(res, 200, { first_name: "Wema", last_name: "F", user_email: "w@example.com" });
   if (p === "/allowed_gummies_models")
     return j(res, 200, { model_groups: [{ groupLabel: "Anthropic", options: [{ label: "Claude 4.8 Opus", value: "gummies_smartest" }] }] });
+  if (p === "/last_message") return j(res, 200, { content: lastMessage });
   return j(res, 200, {});
 });
 
+let lastMessage = "";
 const wss = new WebSocketServer({ server, path: "/ws/gummies" });
 wss.on("connection", (ws) => {
   ws.on("message", (raw) => {
     let m = null; try { m = JSON.parse(raw.toString()); } catch {}
     if (!m || m.type !== "start") return;
+    try { lastMessage = m.payload.context.message.content || ""; } catch { lastMessage = ""; }
     const frames = [
       { type: "interaction-ready" },
       { type: "step-start", modelId: "claude-opus-4-8" },

@@ -628,3 +628,14 @@ button { font-family: inherit; }
   70%  { box-shadow: 0 0 0 7px rgba(13,148,136,0); opacity: .7; }
   100% { box-shadow: 0 0 0 0 rgba(13,148,136,0); opacity: 1; }
 }
+
+
+/* ============================================================
+   Stop button (in-flight turn) + stopped indicator
+   ============================================================ */
+.send-btn.busy { background: #b91c1c; border-color: #b91c1c; }
+.send-btn.busy:hover { background: #991b1b; }
+.live-status.stopped {
+  margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--text-faint);
+}
+.live-status.stopped .live-dot { display: none; }

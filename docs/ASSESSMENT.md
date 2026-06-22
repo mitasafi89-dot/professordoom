@@ -83,3 +83,23 @@ authoritative REST `parts[]` at the end. Keep `interaction_id` reuse for context
   optional skill re-injection on demand, accessibility, and final review.
 
 Each phase is committed to `main` before the next begins.
+
+
+## 5. Implementation status — all phases complete
+
+- **Phase 1 ✅** Live SSE streaming backend (`POST /api/send/stream`).
+- **Phase 2 ✅** Live activity UI — thinking/tool steps + status line, authoritative re-render on `done`.
+- **Phase 3 ✅** Redesigned sidebar — search, date grouping, relative times, state badges, skeletons.
+- **Phase 4 ✅** E2E harness (`tests/mock_gumloop.js` + headless browser).
+- **Phase 5 ✅** Hardening:
+  - **Stop/cancel** — the composer button becomes a Stop control mid-turn; aborting the
+    fetch closes the SSE stream and tears down the upstream Gumloop WS; partial output is kept.
+  - **Drop recovery** — if the stream drops before `done`, the client polls the REST
+    interaction a few times and renders the completed turn.
+  - **On-demand contract re-injection** — changing the working skill mid-conversation
+    re-applies the contract on the next message (`reinject`); a brand-new chat injects
+    automatically; without it, existing conversations are left untouched.
+
+All verified end-to-end against the mock Gumloop server through a headless browser. The
+only path not exercisable from CI is a real captcha-gated live send (no captcha-free path
+exists); the full stream→render pipeline is proven against a faithful mock.

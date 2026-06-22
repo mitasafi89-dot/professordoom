@@ -26,6 +26,8 @@ let SELECTED_MODEL = (function () {
 })();
 let SEND_CONFIGURED = false;
 let busy = false;
+let currentAbort = null;   // AbortController for the in-flight streaming turn
+let REINJECT_NEXT = false; // re-apply the working contract on the next message
 let SELECTED_SKILL = localStorage.getItem('pd_skill') || '';
 
 // ---------- helpers ----------
@@ -433,6 +435,45 @@ function parseSSE(chunk) {
   return { event, obj };
 }
 
+// Toggle the composer button between Send (paper plane) and Stop (square).
+function setSendingUI(on) {
+  sendBtn.disabled = false;
+  if (on) {
+    sendBtn.classList.add('busy');
+    sendBtn.title = 'Stop';
+    sendBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
+  } else {
+    sendBtn.classList.remove('busy');
+    sendBtn.title = 'Send';
+    sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+  }
+}
+
+// Cancel the in-flight turn. Aborting the fetch closes the SSE connection, which
+// makes the server tear down its upstream Gumloop WebSocket.
+function stopTurn() { if (currentAbort) { try { currentAbort.abort(); } catch {} } }
+
+// If the stream drops unexpectedly (network), the turn may still finish on the
+// server. Recover the completed turn from the REST interaction with a few polls.
+async function recoverTurn(bubble, live) {
+  if (!CURRENT_INTERACTION) return false;
+  live.status = 'Reconnecting…'; renderLive(bubble, live);
+  for (let i = 0; i < 4; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const d = await gl('gummie_interactions/' + CURRENT_INTERACTION);
+      const msgs = (d.interaction && d.interaction.messages) || [];
+      const last = [...msgs].reverse().find((m) => m.role === 'assistant');
+      if (last && last.parts && last.parts.length) {
+        bubble.innerHTML = renderAssistantParts(last.parts);
+        loadConversations();
+        return true;
+      }
+    } catch { /* keep polling */ }
+  }
+  return false;
+}
+
 async function send() {
   const text = inputEl.value.trim();
   if (!text || busy) return;
@@ -445,7 +486,10 @@ async function send() {
   // Turnstile is domain-locked; the server only checks token presence.
   const turnstile = turnstile_token || 'na';
 
-  busy = true; sendBtn.disabled = true;
+  busy = true;
+  const abort = new AbortController();
+  currentAbort = abort;
+  setSendingUI(true);
   if (emptyEl) emptyEl.remove();
   addMessage('user', text);
   inputEl.value = ''; autoGrow();
@@ -455,17 +499,23 @@ async function send() {
   renderLive(bubble, live);
   threadEl.scrollTop = threadEl.scrollHeight;
 
+  // On-demand contract re-injection: applies on a new conversation OR when the
+  // user changed the working skill mid-conversation.
+  const reinject = REINJECT_NEXT; REINJECT_NEXT = false; updateSkillNote();
+
   let finished = false;
   try {
     const resp = await fetch('/api/send/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
+      signal: abort.signal,
       body: JSON.stringify({
         interaction_id: CURRENT_INTERACTION,
         message: text,
         turnstile_token: turnstile,
         hcaptcha_token,
         skill: SELECTED_SKILL || '',
+        reinject,
       }),
     });
     if (!resp.ok || !resp.body) {
@@ -506,12 +556,28 @@ async function send() {
       }
     }
   } catch (e) {
-    if (!finished) { live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Error:** ' + e.message; renderLive(bubble, live); }
+    if (e && e.name === 'AbortError') {
+      // User pressed Stop — keep whatever streamed so far, mark it stopped.
+      finished = true; live.status = '';
+      if (live.steps.length || live.answer) {
+        renderLive(bubble, live);
+        bubble.insertAdjacentHTML('beforeend', '<div class="live-status stopped">⏹ Stopped</div>');
+      } else {
+        bubble.innerHTML = render('_Stopped before any output._');
+      }
+    } else if (!finished) {
+      // Unexpected drop mid-stream — try to recover the finished turn from REST.
+      const recovered = await recoverTurn(bubble, live);
+      if (!recovered) { live.status = ''; live.answer += (live.answer ? '\n\n' : '') + '**Connection lost.** ' + e.message; renderLive(bubble, live); }
+      finished = true;
+    }
   } finally {
     if (!finished && !live.answer && !live.steps.length) bubble.innerHTML = render('**No response received.** The connection closed before any output.');
+    currentAbort = null;
+    setSendingUI(false);
     resetCaptcha(); // tokens are single-use — force a fresh solve per message
     threadEl.scrollTop = threadEl.scrollHeight;
-    busy = false; sendBtn.disabled = false; inputEl.focus();
+    busy = false; inputEl.focus();
   }
 }
 
@@ -527,7 +593,7 @@ function flash(msg) {
 function autoGrow() { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px'; }
 inputEl.addEventListener('input', autoGrow);
 inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-sendBtn.addEventListener('click', send);
+sendBtn.addEventListener('click', () => { if (busy) stopTurn(); else send(); });
 $('newChat').addEventListener('click', () => {
   CURRENT_INTERACTION = null;
   convNameEl.textContent = 'New chat';
@@ -544,7 +610,12 @@ function skillLabel(slug) { const s = SKILLS.find((x) => x.slug === slug); retur
 function updateSkillNote() {
   if (!skillNoteEl) return;
   const s = SKILLS.find((x) => x.slug === SELECTED_SKILL);
-  skillNoteEl.textContent = !SELECTED_SKILL ? '' : (s && s.hasContract ? '· contract active' : '· no contract uploaded yet');
+  if (!SELECTED_SKILL) { skillNoteEl.textContent = ''; return; }
+  if (REINJECT_NEXT && s && s.hasContract) {
+    skillNoteEl.textContent = '· contract will be applied on your next message';
+    return;
+  }
+  skillNoteEl.textContent = (s && s.hasContract) ? '· contract active' : '· no contract uploaded yet';
 }
 async function loadSkills() {
   if (!skillSelectEl) return;
@@ -560,6 +631,9 @@ if (skillSelectEl) {
   skillSelectEl.addEventListener('change', () => {
     SELECTED_SKILL = skillSelectEl.value;
     localStorage.setItem('pd_skill', SELECTED_SKILL);
+    // Re-apply the contract on the next message if a skill is chosen while a
+    // conversation is already open (a NEW chat injects it automatically).
+    REINJECT_NEXT = Boolean(SELECTED_SKILL && CURRENT_INTERACTION);
     updateSkillNote();
   });
 }

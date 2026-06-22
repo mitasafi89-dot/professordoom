@@ -621,7 +621,7 @@ app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
 // ===================== Send (manual-captcha, WebSocket) =====================
 app.post("/api/send", async (req, res) => {
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject } = req.body || {};
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
   if (!state.gummieId) return res.status(400).json({ error: "No gummie selected." });
@@ -637,7 +637,9 @@ app.post("/api/send", async (req, res) => {
   // agent operates under it as binding instructions for the whole conversation.
   let outgoing = message;
   const sk = skill && state.skills[skill];
-  if (isNew && sk && sk.contract) {
+  // Inject the working contract on a NEW conversation, or on demand when the
+  // user re-applies a skill mid-conversation (reinject).
+  if ((isNew || reinject) && sk && sk.contract) {
     outgoing =
       `You are operating under a binding WORKING CONTRACT for this task — "${sk.label}". ` +
       `Treat every rule in it as authoritative for the entire conversation.\n\n` +
@@ -718,7 +720,7 @@ app.post("/api/send", async (req, res) => {
 // exact re-render. The conversation (interaction_id) persists across turns just
 // as before; this only changes HOW the turn is delivered.
 app.post("/api/send/stream", async (req, res) => {
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject } = req.body || {};
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
@@ -745,7 +747,9 @@ app.post("/api/send/stream", async (req, res) => {
   // On a NEW conversation, prepend the selected skill's working contract.
   let outgoing = message;
   const sk = skill && state.skills[skill];
-  if (isNew && sk && sk.contract) {
+  // Inject the working contract on a NEW conversation, or on demand when the
+  // user re-applies a skill mid-conversation (reinject).
+  if ((isNew || reinject) && sk && sk.contract) {
     outgoing =
       `You are operating under a binding WORKING CONTRACT for this task — "${sk.label}". ` +
       `Treat every rule in it as authoritative for the entire conversation.\n\n` +
