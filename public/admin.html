@@ -18,43 +18,62 @@
           <div class="sub">Admin Dashboard</div>
         </div>
       </div>
-      <h2>Gumloop session</h2>
-      <p class="lead">Paste your Firebase <strong>refresh token</strong> (project <code>agenthub-dev</code>). It is held <strong>server-side only</strong>; the server mints short-lived <code>id_token</code>s from it to read your data and send messages. The browser never sees it.</p>
 
       <div id="statusline" class="statusline">Status: checking…</div>
+      <div id="dbStatus" class="statusline" style="margin-top:8px">Database: checking…</div>
 
       <div class="field">
-        <label for="password">Admin password</label>
+        <label for="password">Admin password <span class="label-hint">(required to save any change)</span></label>
         <input id="password" type="password" placeholder="admin password" autocomplete="off" />
       </div>
+
+      <h2 style="margin-top:26px">Gumloop session <span class="label-hint">(varies per account)</span></h2>
+      <p class="lead">Paste your Firebase <strong>refresh token</strong>. It is held <strong>server-side only</strong>; the server mints short-lived <code>id_token</code>s from it. The browser never sees it.</p>
       <div class="field">
         <label for="refreshToken">Firebase refresh token <span class="label-hint">(stsTokenManager.refreshToken — DevTools → Application → IndexedDB → firebaseLocalStorageDb)</span></label>
-        <textarea id="refreshToken" placeholder="AMf-vB..."></textarea>
+        <textarea id="refreshToken" placeholder="leave blank to keep current — AMf-vB…"></textarea>
       </div>
       <div class="field">
         <label for="gummieId">Gummie ID <span class="label-hint">(which agent to drive)</span></label>
         <input id="gummieId" type="text" placeholder="e.g. 36L7WDxBd9NTmRifXSzZq3" />
       </div>
 
-      <button id="save" class="btn-primary">Save session</button>
+      <h2 style="margin-top:26px">Platform keys <span class="label-hint">(shared defaults — change only if needed)</span></h2>
+      <p class="lead">Pre-filled with Gumloop's defaults. The Firebase API key is used server-side to mint tokens; the site keys are sent to the browser to render the bot-verification widgets.</p>
+      <div class="field">
+        <label for="firebaseApiKey">Firebase API key <span class="label-hint">(server-side only; leave blank to keep current)</span></label>
+        <input id="firebaseApiKey" type="text" placeholder="leave blank to keep current" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="turnstileSiteKey">Turnstile site key</label>
+        <input id="turnstileSiteKey" type="text" placeholder="0x…" />
+      </div>
+      <div class="field">
+        <label for="hcaptchaSiteKey">hCaptcha site key</label>
+        <input id="hcaptchaSiteKey" type="text" placeholder="xxxxxxxx-xxxx-…" />
+      </div>
+
+      <h2 style="margin-top:26px">Server</h2>
+      <div class="field">
+        <label for="port">Port <span class="label-hint">(takes effect after a server restart)</span></label>
+        <input id="port" type="number" min="1" max="65535" placeholder="3000" />
+      </div>
+
+      <h2 style="margin-top:26px">Change admin password</h2>
+      <div class="field">
+        <label for="newPassword">New admin password <span class="label-hint">(leave blank to keep current)</span></label>
+        <input id="newPassword" type="password" placeholder="leave blank to keep current" autocomplete="new-password" />
+      </div>
+
+      <button id="save" class="btn-primary">Save configuration</button>
       <button id="verify" class="btn-primary" style="background:transparent;border:1px solid var(--gold);color:var(--gold);margin-top:10px">Verify session (mint a token now)</button>
       <button id="clear" class="btn-primary" style="background:transparent;border:1px solid var(--border);margin-top:10px;color:var(--text-dim)">Clear stored session</button>
       <div id="notice" class="notice"></div>
 
-      <h2 style="margin-top:30px">Database</h2>
-      <p class="lead">Paste a <strong>Postgres connection string</strong>. ProfessorDoom connects, auto-creates its tables, persists your session config across restarts, and logs conversations. Held server-side only.</p>
-      <div id="dbStatus" class="statusline">Database: checking…</div>
-      <div class="field">
-        <label for="dbUrl">Connection string <span class="label-hint">(postgres://user:pass@host:5432/dbname)</span></label>
-        <textarea id="dbUrl" placeholder="postgresql://user:password@host:5432/database?sslmode=require"></textarea>
-      </div>
-      <button id="connectDb" class="btn-primary">Connect database</button>
-      <div id="dbNotice" class="notice"></div>
-
       <div class="warn">
-        Refresh tokens are long-lived but can be revoked by signing out of Gumloop. Sending each message still requires solving the in-app bot-verification widgets (Cloudflare Turnstile + hCaptcha) — Gumloop enforces this server-side and it cannot be automated. Change the default admin password via <code>ADMIN_PASSWORD</code> before deploying.
+        The database connection is set once via the <code>DATABASE_URL</code> environment variable and is not editable here. Refresh tokens can be revoked by signing out of Gumloop. Sending each message still requires solving the in-app bot-verification widgets (Cloudflare Turnstile + hCaptcha) — Gumloop enforces this server-side and it cannot be automated.
       </div>
-      <p style="margin-top:18px"><a href="index.html" style="color:var(--gold);font-size:13px">← Back to chat</a></p>
+      <p style="margin-top:18px"><a href="/" style="color:var(--gold);font-size:13px">← Back to chat</a></p>
     </div>
   </div>
   <script src="admin.js"></script>

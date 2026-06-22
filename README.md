@@ -27,12 +27,12 @@ Gumloop enforces **bot verification on every message** — Cloudflare **Turnstil
 npm install
 cp .env.example .env   # optional
 npm start
-# open http://localhost:3000  →  /admin.html to paste your refresh token
+# open http://localhost:3000  →  /admin to paste your refresh token
 ```
 
 ## Configure (admin dashboard)
 
-1. Open `/admin.html`, enter the admin password.
+1. Open `/admin`, enter the admin password.
 2. Paste your Firebase **refresh token** (`stsTokenManager.refreshToken` from DevTools → Application → IndexedDB → `firebaseLocalStorageDb`).
 3. Set the **Gummie ID** of the agent to drive.
 4. Click **Verify session** to confirm it mints a token and authenticates.
@@ -52,7 +52,7 @@ Then on the chat page: pick a conversation (or New chat), solve the verification
 server/server.js   Express: token minting, REST proxy, WebSocket send
 public/index.html  chat client (sidebar, model picker, thread, captcha composer)
 public/app.js       client logic + captcha widgets
-public/admin.html   session dashboard (refresh token, verify)
+public/admin.html   admin dashboard (served at /admin)
 public/styles.css   UI styling
 public/models.json  fallback model list
 PROTOCOL.md         reverse-engineered Gumloop protocol

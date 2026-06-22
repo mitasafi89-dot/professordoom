@@ -54,12 +54,12 @@ async function refreshStatus() {
     window.SITEKEYS = { turnstile: s.turnstileSiteKey, hcaptcha: s.hcaptchaSiteKey };
     if (!s.configured) {
       bannerEl.className = 'banner show';
-      bannerEl.innerHTML = 'Session not configured. An admin must paste the Gumloop refresh token in the <a href="admin.html">admin dashboard</a>.';
+      bannerEl.innerHTML = 'Session not configured. An admin must paste the Gumloop refresh token in the <a href="/admin">admin dashboard</a>.';
       return false;
     }
     if (!GUMMIE_ID) {
       bannerEl.className = 'banner show warn';
-      bannerEl.innerHTML = 'No agent selected. Set a <strong>Gummie ID</strong> in the <a href="admin.html">admin dashboard</a>.';
+      bannerEl.innerHTML = 'No agent selected. Set a <strong>Gummie ID</strong> in the <a href="/admin">admin dashboard</a>.';
       return false;
     }
     bannerEl.className = 'banner';
