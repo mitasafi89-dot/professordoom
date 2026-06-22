@@ -186,24 +186,35 @@ function addMessage(role, text, modelTag) {
 }
 
 // ---------- captcha ----------
-const captcha = { turnstileId: null, hcaptchaId: null, ready: false };
+// hCaptcha is the real server-side check (renders on any domain).
+// Turnstile's sitekey is domain-locked to gumloop.com and won't render here;
+// Gumloop only checks that a turnstile token is PRESENT, so we send a placeholder.
+const captcha = { turnstileId: null, hcaptchaId: null, turnstileOk: false };
 
 function renderCaptcha() {
   const tk = window.SITEKEYS || {};
-  const tryRender = () => {
-    let ok = true;
-    if (window.turnstile && captcha.turnstileId === null && tk.turnstile) {
-      try { captcha.turnstileId = window.turnstile.render('#turnstile', { sitekey: tk.turnstile, theme: 'dark', size: 'flexible' }); }
-      catch { ok = false; }
-    } else if (!window.turnstile) ok = false;
+  // hCaptcha — required
+  const renderH = () => {
     if (window.hcaptcha && captcha.hcaptchaId === null && tk.hcaptcha) {
-      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'dark', size: 'compact' }); }
-      catch { ok = false; }
-    } else if (!window.hcaptcha) ok = false;
-    if (!ok) setTimeout(tryRender, 400);
-    else captcha.ready = true;
+      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'dark', size: 'normal' }); }
+      catch { setTimeout(renderH, 400); }
+    } else if (!window.hcaptcha) setTimeout(renderH, 400);
   };
-  tryRender();
+  renderH();
+  // Turnstile — best effort; hide gracefully if its sitekey rejects this domain
+  const renderT = () => {
+    const box = document.getElementById('turnstile');
+    if (window.turnstile && captcha.turnstileId === null && tk.turnstile) {
+      try {
+        captcha.turnstileId = window.turnstile.render('#turnstile', {
+          sitekey: tk.turnstile, theme: 'dark',
+          callback: () => { captcha.turnstileOk = true; },
+          'error-callback': () => { if (box) box.style.display = 'none'; },
+        });
+      } catch { if (box) box.style.display = 'none'; }
+    } else if (!window.turnstile) setTimeout(renderT, 400);
+  };
+  renderT();
 }
 
 function getCaptchaTokens() {
@@ -224,10 +235,12 @@ async function send() {
   if (!text || busy) return;
 
   const { turnstile_token, hcaptcha_token } = getCaptchaTokens();
-  if (!turnstile_token) {
-    flash('Solve the verification above before sending.');
+  if (!hcaptcha_token) {
+    flash('Complete the "I am human" check above before sending.');
     return;
   }
+  // Turnstile is domain-locked to gumloop.com; Gumloop only checks presence.
+  const turnstile = turnstile_token || 'na';
 
   busy = true; sendBtn.disabled = true;
   if (emptyEl) emptyEl.remove();
@@ -244,7 +257,7 @@ async function send() {
       body: JSON.stringify({
         interaction_id: CURRENT_INTERACTION,
         message: text,
-        turnstile_token,
+        turnstile_token: turnstile,
         hcaptcha_token,
       }),
     });
