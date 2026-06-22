@@ -456,7 +456,10 @@ app.post("/api/send", async (req, res) => {
         if (o.type === "error") { wsError = o.errorMessage || o.error || "error"; clearTimeout(timer); finish(); return; }
         if (typeof o.text === "string") streamText += o.text;
         else if (typeof o.delta === "string") streamText += o.delta;
-        if (["finish", "step-finish", "done", "interaction-finish", "complete", "end"].includes(o.type)) { clearTimeout(timer); finish(); }
+        // Only terminate on the END OF THE WHOLE TURN — NOT on "step-finish",
+        // which fires after each intermediate step (e.g. a single tool call) and
+        // would cut a multi-step agent off at its first action.
+        if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) { clearTimeout(timer); finish(); }
       } catch { /* non-json */ }
     });
     ws.on("error", (e) => { wsError = wsError || e.message; clearTimeout(timer); finish(); });

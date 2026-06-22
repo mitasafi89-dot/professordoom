@@ -169,7 +169,10 @@ function renderThread(msgs) {
     threadInner.innerHTML = '<div class="empty"><p>No messages in this conversation.</p></div>';
     return;
   }
-  msgs.forEach((m) => addMessage(m.role, partsToText(m), (m.models && m.models[0]) || ''));
+  msgs.forEach((m) => {
+    if (m.role === 'assistant') addRichMessage(renderAssistantParts(m.parts), (m.models && m.models[0]) || '');
+    else addMessage(m.role, partsToText(m));
+  });
   threadEl.scrollTop = threadEl.scrollHeight;
 }
 
@@ -186,6 +189,69 @@ function addMessage(role, text, modelTag) {
   return wrap.querySelector('.bubble');
 }
 
+function escH(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// Append an assistant message whose body is pre-built HTML (rich parts).
+function addRichMessage(html, modelTag) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg assistant';
+  wrap.innerHTML =
+    '<div class="avatar">D</div>' +
+    '<div class="body"><div class="role">ProfessorDoom' +
+    (modelTag ? '<span class="model-tag">' + escH(modelTag) + '</span>' : '') + '</div>' +
+    '<div class="bubble">' + (html || '') + '</div></div>';
+  threadInner.appendChild(wrap);
+  return wrap.querySelector('.bubble');
+}
+
+// Build rich HTML from a Gumloop assistant message's parts[]:
+// reasoning -> collapsible thinking, tool_invocation -> step chips,
+// text -> answer, file -> download card, ask_human_input -> pending questions.
+function renderAssistantParts(parts) {
+  parts = parts || [];
+  const steps = [];
+  let answer = '', files = '', ask = '';
+  for (const p of parts) {
+    if (p.type === 'reasoning' && p.reasoning) {
+      steps.push('<div class="step step-think"><span class="step-ico">💭</span><div class="step-txt">' + escH(p.reasoning) + '</div></div>');
+    } else if (p.type === 'tool_invocation') {
+      const cap = p.toolCaption || p.toolName || 'tool';
+      const st = (p.toolCallState || '').toLowerCase();
+      const badge = st ? '<span class="tool-state ' + escH(st) + '">' + escH(st) + '</span>' : '';
+      const nm = p.toolName ? '<span class="tool-name">' + escH(p.toolName) + '</span>' : '';
+      steps.push('<div class="step step-tool"><span class="step-ico">🔧</span><div class="step-txt"><span class="tool-cap">' + escH(cap) + '</span>' + nm + badge + '</div></div>');
+      if (p.toolName === 'ask_human_input') {
+        try {
+          const qs = (p.result && p.result.args && p.result.args.questions) || [];
+          if (qs.length) {
+            ask = '<div class="ask-block"><div class="ask-head">The reviewer is waiting on your answers:</div><ol>' +
+              qs.map((q) => '<li><strong>' + escH(q.title || q.name || '') + '</strong>' + (q.prompt ? '<br>' + escH(q.prompt) : '') + '</li>').join('') +
+              '</ol><div class="ask-hint">Reply in the box below to continue.</div></div>';
+          }
+        } catch {}
+      }
+    } else if (p.type === 'text' && p.text) {
+      answer += render(p.text);
+    } else if (p.type === 'file' && p.file) {
+      const f = p.file;
+      const nm = String(f.filename || 'file').split('/').pop();
+      const url = f.artifact_url || '';
+      files += '<a class="file-card"' + (url ? ' href="' + escH(url) + '" target="_blank" rel="noopener"' : '') + '>' +
+        '<span class="file-ico">📄</span><span class="file-meta"><span class="file-name">' + escH(nm) + '</span>' +
+        '<span class="file-type">' + escH(f.media_type || '') + '</span></span><span class="file-dl">Download</span></a>';
+    }
+  }
+  let html = '';
+  if (steps.length) {
+    html += '<details class="agent-steps"><summary><span class="steps-label">Thinking &amp; steps</span>' +
+      '<span class="steps-count">' + steps.length + '</span></summary><div class="steps-body">' + steps.join('') + '</div></details>';
+  }
+  if (answer) html += '<div class="answer">' + answer + '</div>';
+  if (files) html += '<div class="files">' + files + '</div>';
+  if (ask) html += ask;
+  return html || render('(no content)');
+}
+
 // ---------- captcha ----------
 // hCaptcha is the real server-side check (renders on any domain).
 // The Turnstile sitekey is domain-locked and won't render here; the server only
@@ -197,7 +263,11 @@ function renderCaptcha() {
   // hCaptcha — required
   const renderH = () => {
     if (window.hcaptcha && captcha.hcaptchaId === null && tk.hcaptcha) {
-      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'light', size: 'normal' }); }
+      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'light', size: 'normal',
+        callback: () => setVerified(true),
+        'expired-callback': () => setVerified(false),
+        'error-callback': () => setVerified(false),
+        'chalexpired-callback': () => setVerified(false) }); }
       catch { setTimeout(renderH, 400); }
     } else if (!window.hcaptcha) setTimeout(renderH, 400);
   };
@@ -228,6 +298,13 @@ function getCaptchaTokens() {
 function resetCaptcha() {
   try { if (window.turnstile && captcha.turnstileId !== null) window.turnstile.reset(captcha.turnstileId); } catch {}
   try { if (window.hcaptcha && captcha.hcaptchaId !== null) window.hcaptcha.reset(captcha.hcaptchaId); } catch {}
+  setVerified(false);
+}
+
+// Collapse the verification bar to a slim "✓ verified" chip once solved.
+function setVerified(ok) {
+  const bar = document.getElementById('captchaBar');
+  if (bar) bar.classList.toggle('solved', !!ok);
 }
 
 // ---------- send ----------
@@ -269,7 +346,10 @@ async function send() {
       bubble.innerHTML = render('**Send failed.** ' + (data.error || txt));
     } else {
       if (data.interaction_id) CURRENT_INTERACTION = data.interaction_id;
-      bubble.innerHTML = render(data.reply || '(no text returned)');
+      // Re-render the full turn from the interaction so the reasoning, tool
+      // steps, final answer, and any generated files are all displayed.
+      try { await openConversation(CURRENT_INTERACTION, convNameEl.textContent); }
+      catch { bubble.innerHTML = render(data.reply || '(no text returned)'); }
       loadConversations();
     }
   } catch (e) {
