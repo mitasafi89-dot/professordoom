@@ -811,3 +811,25 @@ if (skillSelectEl) {
   mqMobile.addEventListener('change', closeDrawer); // reset drawer when crossing breakpoint
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 })();
+
+
+// ---------- boot splash ----------
+(function () {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  const start = Date.now();
+  const MIN_MS = 950;   // keep the animation visible long enough to read
+  const MAX_MS = 3200;  // hard cap so it never gets stuck
+  let done = false;
+  const hide = () => {
+    if (done) return; done = true;
+    const wait = Math.max(0, MIN_MS - (Date.now() - start));
+    setTimeout(() => {
+      splash.classList.add('is-hidden');
+      setTimeout(() => splash.remove(), 600);
+    }, wait);
+  };
+  if (document.readyState === 'complete') hide();
+  else window.addEventListener('load', hide, { once: true });
+  setTimeout(hide, MAX_MS);
+})();

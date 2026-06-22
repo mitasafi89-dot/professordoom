@@ -776,3 +776,72 @@ body.sidebar-collapsed .app { grid-template-columns: 0 1fr; }
   position: fixed; inset: 0; background: rgba(13,40,52,.45);
   z-index: 40; opacity: 0; pointer-events: none; transition: opacity .25s ease;
 }
+
+
+/* ============================================================
+   Boot splash — animated crest (ChatGPT-style open animation)
+   ============================================================ */
+.splash {
+  position: fixed; inset: 0; z-index: 999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px;
+  background:
+    radial-gradient(120% 80% at 50% 38%, var(--surface) 0%, var(--bg) 55%, var(--bg-tint) 100%);
+  opacity: 1;
+  transition: opacity .55s ease, visibility .55s ease;
+  will-change: opacity;
+}
+.splash.is-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.splash-logo {
+  position: relative; width: 96px; height: 96px;
+  display: grid; place-items: center;
+}
+.splash-crest {
+  width: 84px; height: 84px; border-radius: 22px; position: relative; z-index: 2;
+  box-shadow: inset 0 0 0 1px var(--border-2), var(--shadow);
+  animation: splashBreathe 2.6s ease-in-out infinite;
+}
+/* Sonar rings — a reviewer scanning for the flaw */
+.splash-logo .sonar {
+  position: absolute; inset: 0; margin: auto;
+  width: 84px; height: 84px; border-radius: 24px;
+  border: 2px solid var(--brand);
+  opacity: 0; z-index: 1;
+  animation: splashSonar 2.6s cubic-bezier(.22,.61,.36,1) infinite;
+}
+.splash-logo .sonar:nth-child(2) { animation-delay: .55s; }
+.splash-logo .sonar:nth-child(3) { animation-delay: 1.1s; }
+
+.splash-word {
+  font-family: var(--serif); font-size: 24px; font-weight: 700; letter-spacing: -.01em;
+  opacity: 0; animation: splashTextIn .6s ease forwards .25s;
+}
+.splash-tag {
+  font-size: 13px; color: var(--text-dim); letter-spacing: .02em;
+  opacity: 0; animation: splashTextIn .6s ease forwards .45s, splashTagPulse 2.6s ease-in-out infinite .9s;
+}
+
+@keyframes splashBreathe {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50%      { transform: scale(1.06) rotate(-1.5deg); }
+}
+@keyframes splashSonar {
+  0%   { transform: scale(.7); opacity: .55; }
+  70%  { opacity: .12; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes splashTextIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes splashTagPulse {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-crest, .splash-logo .sonar, .splash-word, .splash-tag { animation: none; }
+  .splash-word, .splash-tag { opacity: 1; }
+  .splash-logo .sonar { display: none; }
+}
