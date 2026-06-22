@@ -54,8 +54,7 @@ async function refreshStatus() {
     GUMMIE_ID = s.gummieId || '';
     window.SITEKEYS = { turnstile: s.turnstileSiteKey, hcaptcha: s.hcaptchaSiteKey };
     if (!s.configured) {
-      bannerEl.className = 'banner show';
-      bannerEl.innerHTML = 'Session not configured. An admin must add credentials in the <a href="/admin">admin dashboard</a>.';
+      bannerEl.className = 'banner';
       return false;
     }
     if (!GUMMIE_ID) {
