@@ -197,7 +197,7 @@ function renderCaptcha() {
   // hCaptcha — required
   const renderH = () => {
     if (window.hcaptcha && captcha.hcaptchaId === null && tk.hcaptcha) {
-      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'dark', size: 'normal' }); }
+      try { captcha.hcaptchaId = window.hcaptcha.render('hcaptcha', { sitekey: tk.hcaptcha, theme: 'light', size: 'normal' }); }
       catch { setTimeout(renderH, 400); }
     } else if (!window.hcaptcha) setTimeout(renderH, 400);
   };
@@ -208,7 +208,7 @@ function renderCaptcha() {
     if (window.turnstile && captcha.turnstileId === null && tk.turnstile) {
       try {
         captcha.turnstileId = window.turnstile.render('#turnstile', {
-          sitekey: tk.turnstile, theme: 'dark',
+          sitekey: tk.turnstile, theme: 'light',
           callback: () => { captcha.turnstileOk = true; },
           'error-callback': () => { if (box) box.style.display = 'none'; },
         });
