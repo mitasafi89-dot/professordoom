@@ -19,12 +19,13 @@ let CURRENT_INTERACTION = null;
 let SELECTED_MODEL = { label: 'Claude 4.8 Opus', value: 'gummies_smartest' };
 let SEND_CONFIGURED = false;
 let busy = false;
+let SELECTED_SKILL = localStorage.getItem('pd_skill') || '';
 
 // ---------- helpers ----------
 async function gl(pathAndQuery) {
   const r = await fetch('/api/gl/' + pathAndQuery.replace(/^\//, ''));
   const text = await r.text();
-  if (!r.ok) throw new Error('Gumloop ' + r.status + ': ' + text.slice(0, 200));
+  if (!r.ok) throw new Error('Request ' + r.status + ': ' + text.slice(0, 200));
   try { return JSON.parse(text); } catch { return text; }
 }
 
@@ -54,12 +55,12 @@ async function refreshStatus() {
     window.SITEKEYS = { turnstile: s.turnstileSiteKey, hcaptcha: s.hcaptchaSiteKey };
     if (!s.configured) {
       bannerEl.className = 'banner show';
-      bannerEl.innerHTML = 'Session not configured. An admin must paste the Gumloop refresh token in the <a href="/admin">admin dashboard</a>.';
+      bannerEl.innerHTML = 'Session not configured. An admin must add credentials in the <a href="/admin">admin dashboard</a>.';
       return false;
     }
     if (!GUMMIE_ID) {
       bannerEl.className = 'banner show warn';
-      bannerEl.innerHTML = 'No agent selected. Set a <strong>Gummie ID</strong> in the <a href="/admin">admin dashboard</a>.';
+      bannerEl.innerHTML = 'No agent selected. Set an <strong>Agent ID</strong> in the <a href="/admin">admin dashboard</a>.';
       return false;
     }
     bannerEl.className = 'banner';
@@ -187,8 +188,8 @@ function addMessage(role, text, modelTag) {
 
 // ---------- captcha ----------
 // hCaptcha is the real server-side check (renders on any domain).
-// Turnstile's sitekey is domain-locked to gumloop.com and won't render here;
-// Gumloop only checks that a turnstile token is PRESENT, so we send a placeholder.
+// The Turnstile sitekey is domain-locked and won't render here; the server only
+// checks that a turnstile token is PRESENT, so we send a placeholder.
 const captcha = { turnstileId: null, hcaptchaId: null, turnstileOk: false };
 
 function renderCaptcha() {
@@ -239,7 +240,7 @@ async function send() {
     flash('Complete the "I am human" check above before sending.');
     return;
   }
-  // Turnstile is domain-locked to gumloop.com; Gumloop only checks presence.
+  // Turnstile is domain-locked; the server only checks token presence.
   const turnstile = turnstile_token || 'na';
 
   busy = true; sendBtn.disabled = true;
@@ -259,6 +260,7 @@ async function send() {
         message: text,
         turnstile_token: turnstile,
         hcaptcha_token,
+        skill: SELECTED_SKILL || '',
       }),
     });
     const txt = await r.text();
@@ -296,9 +298,37 @@ $('newChat').addEventListener('click', () => {
   CURRENT_INTERACTION = null;
   convNameEl.textContent = 'New chat';
   [...convListEl.querySelectorAll('.conv')].forEach((e) => e.classList.remove('active'));
-  threadInner.innerHTML = '<div class="empty"><div class="big">New conversation</div><p>Type below to start. The message is sent through your Gumloop session with the selected model.</p></div>';
+  threadInner.innerHTML = '<div class="empty"><div class="big">New conversation</div><p>Type below to start' + (SELECTED_SKILL ? ' under the <strong>' + (skillLabel(SELECTED_SKILL) || 'selected') + '</strong> contract' : '') + '. Sent using the selected model.</p></div>';
   inputEl.focus();
 });
+
+// ---------- skills ----------
+const skillSelectEl = $('skillSelect');
+const skillNoteEl = $('skillNote');
+let SKILLS = [];
+function skillLabel(slug) { const s = SKILLS.find((x) => x.slug === slug); return s ? s.label : ''; }
+function updateSkillNote() {
+  if (!skillNoteEl) return;
+  const s = SKILLS.find((x) => x.slug === SELECTED_SKILL);
+  skillNoteEl.textContent = !SELECTED_SKILL ? '' : (s && s.hasContract ? '· contract active' : '· no contract uploaded yet');
+}
+async function loadSkills() {
+  if (!skillSelectEl) return;
+  try {
+    const { skills } = await (await fetch('/api/skills')).json();
+    SKILLS = skills || [];
+    skillSelectEl.innerHTML = '<option value="">Normal chat (no skill)</option>' +
+      SKILLS.map((s) => '<option value="' + s.slug + '"' + (s.slug === SELECTED_SKILL ? ' selected' : '') + '>' + s.label + '</option>').join('');
+    updateSkillNote();
+  } catch { /* ignore */ }
+}
+if (skillSelectEl) {
+  skillSelectEl.addEventListener('change', () => {
+    SELECTED_SKILL = skillSelectEl.value;
+    localStorage.setItem('pd_skill', SELECTED_SKILL);
+    updateSkillNote();
+  });
+}
 
 // ---------- boot ----------
 (async function init() {
@@ -307,6 +337,7 @@ $('newChat').addEventListener('click', () => {
     renderCaptcha();
     loadProfile();
     await loadModels();
+    await loadSkills();
     await loadConversations();
   }
   setInterval(refreshStatus, 20000);

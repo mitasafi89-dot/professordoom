@@ -57,6 +57,16 @@ const state = {
   port: parsePort(process.env.PORT, 3000),
 };
 
+// Working-contract "skills". Each skill carries a guideline document (the contract)
+// that the agent operates under. Contracts persist in the database.
+const DEFAULT_SKILLS = [
+  { slug: "manuscript-writing", label: "Manuscript Writing" },
+  { slug: "revision", label: "Revision" },
+  { slug: "dissertation-writing", label: "Dissertation Writing" },
+];
+state.skills = {};
+DEFAULT_SKILLS.forEach((s) => { state.skills[s.slug] = { slug: s.slug, label: s.label, filename: "", contract: "" }; });
+
 // Constant-time admin password check (avoids timing leaks).
 function checkPassword(p) {
   if (typeof p !== "string" || !p) return false;
@@ -90,11 +100,15 @@ async function connectDb(url) {
   await p.query(`CREATE TABLE IF NOT EXISTS pd_messages (
     id bigserial PRIMARY KEY, interaction_id text, role text, content text,
     model text, created_at timestamptz DEFAULT now())`);
+  await p.query(`CREATE TABLE IF NOT EXISTS pd_skills (
+    slug text PRIMARY KEY, label text, filename text, contract text,
+    updated_at timestamptz DEFAULT now())`);
   if (pool) { try { await pool.end(); } catch {} }
   pool = p;
   state.dbUrl = url;
   state.dbConnected = true;
   await loadConfigFromDb();
+  await loadSkillsFromDb();
 }
 
 async function loadConfigFromDb() {
@@ -132,6 +146,53 @@ async function saveConfigToDb() {
     if (state.hcaptchaSiteKey) await up("hcaptcha_site_key", state.hcaptchaSiteKey);
     if (state.port) await up("port", String(state.port));
   } catch (e) { console.error("saveConfigToDb:", e.message); }
+}
+
+async function loadSkillsFromDb() {
+  if (!pool) return;
+  for (const sk of DEFAULT_SKILLS) {
+    await pool.query(
+      `INSERT INTO pd_skills(slug, label) VALUES($1, $2)
+       ON CONFLICT(slug) DO UPDATE SET label = $2`, [sk.slug, sk.label]);
+  }
+  const r = await pool.query("SELECT slug, label, filename, contract FROM pd_skills");
+  r.rows.forEach((row) => {
+    if (state.skills[row.slug]) {
+      state.skills[row.slug].label = row.label || state.skills[row.slug].label;
+      state.skills[row.slug].filename = row.filename || "";
+      state.skills[row.slug].contract = row.contract || "";
+    }
+  });
+}
+
+async function saveSkillToDb(slug) {
+  if (!pool) return;
+  const s = state.skills[slug];
+  if (!s) return;
+  try {
+    await pool.query(
+      `INSERT INTO pd_skills(slug, label, filename, contract, updated_at)
+       VALUES($1, $2, $3, $4, now())
+       ON CONFLICT(slug) DO UPDATE SET label=$2, filename=$3, contract=$4, updated_at=now()`,
+      [s.slug, s.label, s.filename, s.contract]);
+  } catch (e) { console.error("saveSkillToDb:", e.message); }
+}
+
+// Extract plain text from an uploaded contract document.
+async function extractText(filename, buf) {
+  const ext = (filename || "").toLowerCase().split(".").pop();
+  if (["txt", "md", "markdown", "text"].includes(ext)) return buf.toString("utf8");
+  if (ext === "docx") {
+    const mammoth = require("mammoth");
+    const { value } = await mammoth.extractRawText({ buffer: buf });
+    return value;
+  }
+  if (ext === "pdf") {
+    const pdf = require("pdf-parse");
+    const d = await pdf(buf);
+    return d.text;
+  }
+  return buf.toString("utf8");
 }
 
 async function logMessage(interactionId, role, content, model) {
@@ -240,6 +301,49 @@ app.post("/api/admin/verify", async (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ===================== Skills (working contracts) =====================
+app.get("/api/skills", (req, res) => {
+  const list = DEFAULT_SKILLS.map((d) => {
+    const s = state.skills[d.slug];
+    return { slug: s.slug, label: s.label, filename: s.filename || "", hasContract: Boolean(s.contract) };
+  });
+  res.json({ skills: list });
+});
+
+app.post("/api/admin/skill/get", (req, res) => {
+  const { password, slug } = req.body || {};
+  if (!checkPassword(password)) return res.status(401).json({ error: "Invalid admin password." });
+  const s = state.skills[slug];
+  if (!s) return res.status(404).json({ error: "Unknown skill." });
+  res.json({ slug: s.slug, label: s.label, filename: s.filename || "", contract: s.contract || "" });
+});
+
+app.post("/api/admin/skill", async (req, res) => {
+  const { password, slug, filename, text, contentBase64 } = req.body || {};
+  if (!checkPassword(password)) return res.status(401).json({ error: "Invalid admin password." });
+  const s = state.skills[slug];
+  if (!s) return res.status(404).json({ error: "Unknown skill." });
+  let contract = null;
+  try {
+    if (typeof text === "string" && text.trim()) {
+      contract = text;
+      if (filename) s.filename = filename;
+    } else if (typeof contentBase64 === "string" && contentBase64) {
+      const buf = Buffer.from(contentBase64, "base64");
+      contract = (await extractText(filename || "", buf)).trim();
+      s.filename = filename || s.filename;
+    } else {
+      return res.status(400).json({ error: "Provide a document file or contract text." });
+    }
+  } catch (e) {
+    return res.status(400).json({ error: "Could not read the document: " + e.message });
+  }
+  if (!contract || !contract.trim()) return res.status(400).json({ error: "The document produced no readable text." });
+  s.contract = contract;
+  await saveSkillToDb(slug);
+  res.json({ ok: true, slug: s.slug, label: s.label, filename: s.filename, hasContract: true, chars: contract.length });
+});
+
 // Recent logged messages (for a history view)
 app.get("/api/messages", async (req, res) => {
   if (!pool) return res.json({ messages: [] });
@@ -266,7 +370,7 @@ app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
 // ===================== Send (manual-captcha, WebSocket) =====================
 app.post("/api/send", async (req, res) => {
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
-  const { message, interaction_id, turnstile_token, hcaptcha_token } = req.body || {};
+  const { message, interaction_id, turnstile_token, hcaptcha_token, skill } = req.body || {};
   if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
   if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
   if (!state.gummieId) return res.status(400).json({ error: "No gummie selected." });
@@ -277,6 +381,19 @@ app.post("/api/send", async (req, res) => {
 
   const iid = (interaction_id && interaction_id.trim()) || genId();
   const isNew = !interaction_id;
+
+  // On a NEW conversation, prepend the selected skill's working contract so the
+  // agent operates under it as binding instructions for the whole conversation.
+  let outgoing = message;
+  const sk = skill && state.skills[skill];
+  if (isNew && sk && sk.contract) {
+    outgoing =
+      `You are operating under a binding WORKING CONTRACT for this task — "${sk.label}". ` +
+      `Treat every rule in it as authoritative for the entire conversation.\n\n` +
+      `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
+      `User's request:\n${message}`;
+  }
+
   const frame = {
     type: "start",
     payload: {
@@ -284,7 +401,7 @@ app.post("/api/send", async (req, res) => {
       context: {
         gummie_id: state.gummieId, interaction_id: iid,
         message: { id: "msg_" + genId(), timestamp: new Date().toISOString(),
-                   content: message, role: "user", creator_id: uid },
+                   content: outgoing, role: "user", creator_id: uid },
         type: "chat", is_incognito: false,
       },
       captcha_token: hcaptcha_token || "", captcha_provider: "hcaptcha", turnstile_token,
@@ -351,7 +468,7 @@ async function start() {
     catch (e) { console.error("Database connect failed:", e.message); }
   }
   app.listen(state.port, () => {
-    console.log(`ProfessorDoom (Gumloop client) on http://localhost:${state.port}`);
+    console.log(`ProfessorDoom on http://localhost:${state.port}`);
     console.log(state.refreshToken ? "Refresh token loaded." : "No session — set it in /admin");
   });
 }
