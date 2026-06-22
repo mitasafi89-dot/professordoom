@@ -334,11 +334,13 @@ if (skillSelectEl) {
   // Model picker is static metadata (API with models.json fallback) — always
   // populate it so the dropdown works regardless of session/verification state.
   await loadModels();
+  // Skills come from /api/skills (the admin-configured list) and aren't tied to
+  // the Gumloop session — load them too so the composer's skill picker is populated.
+  await loadSkills();
   const ok = await refreshStatus();
   if (ok) {
     renderCaptcha();
     loadProfile();
-    await loadSkills();
     await loadConversations();
   }
   setInterval(refreshStatus, 20000);
