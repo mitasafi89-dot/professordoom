@@ -1,29 +1,11 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const statusline = $("statusline");
-const noticeEl = $("notice");
 
-async function refreshStatus() {
-  try {
-    const s = await (await fetch("/api/status")).json();
-    statusline.innerHTML = s.configured
-      ? 'Status: <strong style="color:#7ee787">configured</strong> &middot; agent <code>' + (s.gummieId || "—") + "</code>"
-      : 'Status: <strong style="color:#ff9aa0">not configured</strong> — no refresh token set.';
-    $("dbStatus").innerHTML = s.dbConnected
-      ? 'Database: <strong style="color:#7ee787">connected</strong> &middot; config persists across restarts'
-      : 'Database: <strong style="color:#ffcf7a">not connected</strong> — set DATABASE_URL to persist config.';
-    if (s.gummieId) $("gummieId").placeholder = s.gummieId;
-    if (s.turnstileSiteKey) $("turnstileSiteKey").placeholder = s.turnstileSiteKey;
-    if (s.hcaptchaSiteKey) $("hcaptchaSiteKey").placeholder = s.hcaptchaSiteKey;
-    if (s.port) $("port").placeholder = s.port;
-    if (s.firebaseConfigured) $("firebaseApiKey").placeholder = "configured — leave blank to keep current";
-  } catch {
-    statusline.textContent = "Status: server offline.";
-  }
+function notify(msg, ok, id) {
+  const el = $(id || "notice"); if (!el) return;
+  el.textContent = msg; el.className = "notice " + (ok ? "ok" : "err");
 }
-
-function notify(msg, ok) { noticeEl.textContent = msg; noticeEl.className = "notice " + (ok ? "ok" : "err"); }
 
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -31,15 +13,46 @@ async function post(url, body) {
   return { ok: r.ok, data };
 }
 
-// ---- Extract refresh token + API key from a pasted firebase auth blob ----
+// ---------- tabs ----------
+document.querySelectorAll(".admin-tabs .tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".admin-tabs .tab").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    $("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+// ---------- status chips ----------
+function setChip(id, text, level) {
+  const el = $(id); if (!el) return;
+  el.className = "chip " + (level || "");
+  el.innerHTML = '<span class="cdot"></span>' + text;
+}
+
+async function refreshStatus() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    if (s.configured) setChip("chipSession", s.gummieId ? "Configured" : "No agent set", s.gummieId ? "ok" : "warn");
+    else setChip("chipSession", "Not configured", "bad");
+    setChip("chipDb", s.dbConnected ? "Database on" : "Database off", s.dbConnected ? "ok" : "warn");
+    if (s.gummieId) $("gummieId").placeholder = s.gummieId;
+    if (s.turnstileSiteKey) $("turnstileSiteKey").placeholder = s.turnstileSiteKey;
+    if (s.hcaptchaSiteKey) $("hcaptchaSiteKey").placeholder = s.hcaptchaSiteKey;
+    if (s.port) $("port").placeholder = s.port;
+    if (s.firebaseConfigured) $("firebaseApiKey").placeholder = "configured — leave blank to keep current";
+  } catch {
+    setChip("chipSession", "Server offline", "bad");
+  }
+}
+
+// ---------- auth-blob extractor ----------
 function extractBlob() {
   const raw = $("authBlob").value.trim();
-  const el = $("extractNotice");
-  if (!raw) { el.textContent = "Paste the auth blob first."; el.className = "notice err"; return; }
+  if (!raw) return notify("Paste the auth blob first.", false, "extractNotice");
   let apiKey = "", refreshToken = "";
   try {
-    const o = JSON.parse(raw);
-    const v = o.value || o;
+    const o = JSON.parse(raw); const v = o.value || o;
     apiKey = v.apiKey || "";
     refreshToken = (v.stsTokenManager && v.stsTokenManager.refreshToken) || v.refreshToken || "";
   } catch {
@@ -48,32 +61,31 @@ function extractBlob() {
     if (ak) apiKey = ak[1];
     if (rt) refreshToken = rt[1];
   }
-  if (!refreshToken && !apiKey) { el.textContent = "Could not find a refresh token or API key in that text."; el.className = "notice err"; return; }
+  if (!refreshToken && !apiKey) return notify("Could not find a refresh token or API key in that text.", false, "extractNotice");
   if (refreshToken) $("refreshToken").value = refreshToken;
   if (apiKey) $("firebaseApiKey").value = apiKey;
-  el.textContent = "✓ Extracted " + [refreshToken ? "refresh token" : "", apiKey ? "API key" : ""].filter(Boolean).join(" + ") + ". Review, then Save configuration.";
-  el.className = "notice ok";
+  notify("✓ Extracted " + [refreshToken ? "refresh token" : "", apiKey ? "API key" : ""].filter(Boolean).join(" + ") + ". Now Save session.", true, "extractNotice");
 }
 
-async function save() {
+// ---------- save (session + advanced share one payload) ----------
+async function save(noticeId, btnId) {
   const password = $("password").value;
-  if (!password) return notify("Enter the admin password.", false);
+  if (!password) return notify("Enter the admin password.", false, noticeId);
   const body = { password };
-  const map = { refreshToken: "refreshToken", gummieId: "gummieId", firebaseApiKey: "firebaseApiKey",
-                turnstileSiteKey: "turnstileSiteKey", hcaptchaSiteKey: "hcaptchaSiteKey", port: "port", newPassword: "newPassword" };
-  for (const k in map) { const v = $(map[k]).value.trim(); if (v) body[k] = v; }
-  $("save").disabled = true;
+  const fields = ["refreshToken", "gummieId", "firebaseApiKey", "turnstileSiteKey", "hcaptchaSiteKey", "port", "newPassword"];
+  fields.forEach((k) => { const v = $(k).value.trim(); if (v) body[k] = v; });
+  const btn = $(btnId); if (btn) btn.disabled = true;
   try {
     const { ok, data } = await post("/api/admin/creds", body);
-    if (!ok) { notify(data.error || "Update failed.", false); return; }
+    if (!ok) { notify(data.error || "Update failed.", false, noticeId); return; }
     let msg = "Saved. Session is " + (data.configured ? "configured." : "still missing a refresh token.");
-    if (data.passwordChanged) msg += " Admin password updated.";
-    if (data.portChanged) msg += " Port change takes effect after a restart.";
-    notify(msg, true);
+    if (data.passwordChanged) msg += " Password updated.";
+    if (data.portChanged) msg += " Port applies after restart.";
+    notify(msg, true, noticeId);
     $("refreshToken").value = ""; $("firebaseApiKey").value = ""; $("newPassword").value = ""; $("authBlob").value = "";
     refreshStatus();
-  } catch { notify("Could not reach the server.", false); }
-  finally { $("save").disabled = false; }
+  } catch { notify("Could not reach the server.", false, noticeId); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function verify() {
@@ -93,9 +105,27 @@ async function clearSession() {
   else notify(data.error || "Clear failed.", false);
 }
 
-// ---- Skills ----
-function skillNotify(msg, ok) { const el = $("skillNotice"); el.textContent = msg; el.className = "notice " + (ok ? "ok" : "err"); }
+// ---------- detect agents ----------
+async function detectAgents() {
+  const password = $("password").value;
+  if (!password) return notify("Enter the admin password first.", false, "agentNotice");
+  $("detectAgents").disabled = true;
+  notify("Detecting…", true, "agentNotice");
+  try {
+    const { ok, data } = await post("/api/admin/agents", { password });
+    if (!ok) return notify(data.error || "Could not detect agents.", false, "agentNotice");
+    const agents = data.agents || [];
+    if (!agents.length) return notify("No agents found — enter the Agent ID manually.", false, "agentNotice");
+    const sel = $("agentSelect");
+    sel.innerHTML = agents.map((x) => '<option value="' + x.id + '">' + x.name + " — " + x.id + "</option>").join("");
+    $("agentPickWrap").style.display = "";
+    $("gummieId").value = agents[0].id; sel.value = agents[0].id;
+    notify("✓ Found " + agents.length + " agent(s). " + (agents.length === 1 ? "Filled in — Save session." : "Pick one, then Save."), true, "agentNotice");
+  } catch { notify("Could not reach the server.", false, "agentNotice"); }
+  finally { $("detectAgents").disabled = false; }
+}
 
+// ---------- skills ----------
 let SKILLS = [];
 async function loadSkills() {
   try {
@@ -105,81 +135,50 @@ async function loadSkills() {
     onSkillChange();
   } catch { /* ignore */ }
 }
-
 function currentSkill() { return SKILLS.find((s) => s.slug === $("skillSelect").value); }
-
 async function onSkillChange() {
-  const s = currentSkill();
-  if (!s) return;
+  const s = currentSkill(); if (!s) return;
   $("skillStatus").innerHTML = s.hasContract
-    ? 'Contract: <strong style="color:#7ee787">set</strong>' + (s.filename ? " &middot; <code>" + s.filename + "</code>" : "")
-    : 'Contract: <strong style="color:#ffcf7a">none yet</strong>';
-  // Load existing contract text for editing (needs the admin password).
+    ? '<span class="cdot ok"></span>Contract set' + (s.filename ? ' &middot; <code>' + s.filename + "</code>" : "")
+    : '<span class="cdot warn"></span>No contract yet';
   const password = $("password").value;
   if (password && s.hasContract) {
     const { ok, data } = await post("/api/admin/skill/get", { password, slug: s.slug });
-    if (ok) $("skillText").value = data.contract || "";
-  } else {
-    $("skillText").value = "";
-  }
+    $("skillText").value = ok ? (data.contract || "") : "";
+  } else { $("skillText").value = ""; }
 }
-
 function readFileBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = () => { const b64 = String(r.result).split(",").pop(); resolve(b64); };
-    r.onerror = reject;
-    r.readAsDataURL(file);
+    r.onload = () => resolve(String(r.result).split(",").pop());
+    r.onerror = reject; r.readAsDataURL(file);
   });
 }
-
 async function saveSkill() {
   const password = $("password").value;
-  if (!password) return skillNotify("Enter the admin password.", false);
-  const s = currentSkill();
-  if (!s) return skillNotify("Pick a skill.", false);
+  if (!password) return notify("Enter the admin password.", false, "skillNotice");
+  const s = currentSkill(); if (!s) return notify("Pick a skill.", false, "skillNotice");
   const file = $("skillFile").files[0];
   const text = $("skillText").value.trim();
-  if (!file && !text) return skillNotify("Upload a document or paste the contract text.", false);
-  $("saveSkill").disabled = true;
-  skillNotify("Saving…", true);
+  if (!file && !text) return notify("Upload a document or paste the contract text.", false, "skillNotice");
+  $("saveSkill").disabled = true; notify("Saving…", true, "skillNotice");
   try {
     const body = { password, slug: s.slug };
     if (file) { body.filename = file.name; body.contentBase64 = await readFileBase64(file); }
     else { body.text = text; }
     const { ok, data } = await post("/api/admin/skill", body);
-    if (!ok) skillNotify(data.error || "Save failed.", false);
-    else { skillNotify("✓ Saved " + data.chars + " characters for " + data.label + ".", true); $("skillFile").value = ""; await loadSkills(); }
-  } catch { skillNotify("Could not reach the server.", false); }
+    if (!ok) notify(data.error || "Save failed.", false, "skillNotice");
+    else { notify("✓ Saved " + data.chars + " characters for " + data.label + ".", true, "skillNotice"); $("skillFile").value = ""; await loadSkills(); }
+  } catch { notify("Could not reach the server.", false, "skillNotice"); }
   finally { $("saveSkill").disabled = false; }
 }
 
-function agentNotify(msg, ok) { const el = $("agentNotice"); el.textContent = msg; el.className = "notice " + (ok ? "ok" : "err"); }
-
-async function detectAgents() {
-  const password = $("password").value;
-  if (!password) return agentNotify("Enter the admin password first.", false);
-  $("detectAgents").disabled = true;
-  agentNotify("Detecting…", true);
-  try {
-    const { ok, data } = await post("/api/admin/agents", { password });
-    if (!ok) return agentNotify(data.error || "Could not detect agents.", false);
-    const agents = data.agents || [];
-    if (!agents.length) return agentNotify("No agents found on this account — enter the Agent ID manually.", false);
-    const sel = $("agentSelect");
-    sel.innerHTML = agents.map((x) => '<option value="' + x.id + '">' + x.name + " — " + x.id + "</option>").join("");
-    $("agentPickWrap").style.display = "";
-    $("gummieId").value = agents[0].id;
-    sel.value = agents[0].id;
-    agentNotify("✓ Found " + agents.length + " agent(s). " + (agents.length === 1 ? "Filled into Agent ID — Save to apply." : "Pick one, then Save."), true);
-  } catch { agentNotify("Could not reach the server.", false); }
-  finally { $("detectAgents").disabled = false; }
-}
-
+// ---------- wiring ----------
+$("extract").addEventListener("click", extractBlob);
 $("detectAgents").addEventListener("click", detectAgents);
 $("agentSelect").addEventListener("change", () => { $("gummieId").value = $("agentSelect").value; });
-$("extract").addEventListener("click", extractBlob);
-$("save").addEventListener("click", save);
+$("save").addEventListener("click", () => save("notice", "save"));
+$("saveAdvanced").addEventListener("click", () => save("advNotice", "saveAdvanced"));
 $("verify").addEventListener("click", verify);
 $("clear").addEventListener("click", clearSession);
 $("skillSelect").addEventListener("change", onSkillChange);
