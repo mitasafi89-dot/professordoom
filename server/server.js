@@ -260,6 +260,7 @@ async function connectDb(url) {
     max: 5,
     connectionTimeoutMillis: 8000,
   });
+  try {
   await p.query("SELECT 1");
   await p.query(`CREATE TABLE IF NOT EXISTS pd_config (
     key text PRIMARY KEY, value text, updated_at timestamptz DEFAULT now())`);
@@ -276,6 +277,12 @@ async function connectDb(url) {
     filename text, media_type text, artifact_url text, bytes bigint,
     version int DEFAULT 1, content bytea,
     created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())`);
+  } catch (e) {
+    // Never leak the freshly-created pool when the connect or DDL fails; the
+    // previously-connected pool (if any) is left intact for fallback.
+    try { await p.end(); } catch {}
+    throw e;
+  }
   if (pool) { try { await pool.end(); } catch {} }
   pool = p;
   state.dbUrl = url;
@@ -1220,10 +1227,28 @@ async function start() {
     try { await connectDb(state.dbUrl); console.log("Database connected; config loaded (Supabase is source of truth)."); }
     catch (e) { console.error("Database connect failed; using local persisted config:", e.message); }
   }
-  app.listen(state.port, () => {
+  server = app.listen(state.port, () => {
     console.log(`ProfessorDoom on http://localhost:${state.port}`);
     console.log(state.refreshToken ? "Refresh token loaded." : "No session yet. Set it in /admin");
   });
 }
+
+// Graceful shutdown: stop accepting connections and close the Postgres pool so a
+// redeploy/restart doesn't drop in-flight requests or leak DB connections.
+let server = null;
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\nReceived ${signal}, shutting down gracefully...`);
+  const force = setTimeout(() => process.exit(0), 8000);
+  force.unref();
+  try { if (server) await new Promise((r) => server.close(r)); } catch {}
+  try { if (pool) await pool.end(); } catch {}
+  clearTimeout(force);
+  process.exit(0);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 start();
