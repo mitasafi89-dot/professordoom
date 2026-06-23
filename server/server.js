@@ -917,7 +917,7 @@ app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
   } catch (err) { recordError("rest", err.message); res.status(502).json({ error: "Upstream failed: " + err.message }); }
 });
 
-// ===================== Send (manual-captcha, WebSocket) =====================
+// ===================== Autonomous-mode directive =====================
 // Autonomous-mode directive: appended (via the existing injection path) when the
 // browser has Auto-continue enabled. It teaches the agent the turn protocol so
 // the client can reliably detect completion vs. a genuine question for the user.
@@ -941,112 +941,6 @@ const AUTOCONTINUE_DIRECTIVE =
   'then end your FINAL message with the exact token \u27e6TASK_COMPLETE\u27e7 on its own line; or (b) you truly need a ' +
   'decision or information from the user before you can proceed \u2014 then ask via the ask_human_input tool and do ' +
   'NOT emit the completion token.';
-
-app.post("/api/send", async (req, res) => {
-  if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
-  const { message, interaction_id, turnstile_token, hcaptcha_token, skill, reinject, autocontinue, attachments } = req.body || {};
-  if (!message || !message.trim()) return res.status(400).json({ error: "message is required." });
-  if (!turnstile_token) return res.status(400).json({ error: "Turnstile token required (solve the verification)." });
-  if (!state.gummieId) return res.status(400).json({ error: "No gummie selected." });
-
-  let idToken, uid;
-  try { ({ idToken, uid } = await mintIdToken()); }
-  catch (e) { recordError("auth", e.message); return res.status(401).json({ error: e.message }); }
-
-  const iid = (interaction_id && interaction_id.trim()) || genId();
-  const isNew = !interaction_id;
-
-  // On a NEW conversation, prepend the selected skill's working contract so the
-  // agent operates under it as binding instructions for the whole conversation.
-  let outgoing = message;
-  const sk = skill && state.skills[skill];
-  // Inject the working contract on a NEW conversation, or on demand when the
-  // user re-applies a skill mid-conversation (reinject).
-  if ((isNew || reinject) && sk && sk.contract) {
-    outgoing =
-      `You are operating under a binding WORKING CONTRACT for this task: "${sk.label}". ` +
-      `Treat every rule in it as authoritative for the entire conversation.\n\n` +
-      `===== WORKING CONTRACT: ${sk.label} =====\n${sk.contract}\n===== END WORKING CONTRACT =====\n\n` +
-      `User's request:\n${message}`;
-  }
-  // Append any user-uploaded files, extracted to plain text (docx/pdf/txt/…).
-  if (Array.isArray(attachments) && attachments.length) {
-    const blocks = [];
-    for (const a of attachments) {
-      try {
-        const buf = Buffer.from((a && a.contentBase64) || "", "base64");
-        const text = (await extractText((a && a.filename) || "", buf)).trim();
-        if (text) blocks.push(`----- ATTACHED FILE: ${(a && a.filename) || "file"} -----\n${text}`);
-      } catch (e) { /* skip unreadable attachment */ }
-    }
-    if (blocks.length) outgoing += `\n\nThe user attached the following file(s):\n\n${blocks.join("\n\n")}`;
-  }
-  if (autocontinue) outgoing = AUTOCONTINUE_DIRECTIVE + "\n\n" + outgoing;
-
-  const frame = {
-    type: "start",
-    payload: {
-      id_token: idToken,
-      context: {
-        gummie_id: state.gummieId, interaction_id: iid,
-        message: { id: "msg_" + genId(), timestamp: new Date().toISOString(),
-                   content: outgoing, role: "user", creator_id: uid },
-        type: "chat", is_incognito: false,
-      },
-      captcha_token: hcaptcha_token || "", captcha_provider: "hcaptcha", turnstile_token,
-    },
-  };
-
-  const frames = [];
-  let streamText = "";
-  let wsError = null;
-
-  await new Promise((resolve) => {
-    let done = false;
-    const finish = () => { if (!done) { done = true; try { ws.close(); } catch {} resolve(); } };
-    const timer = setTimeout(finish, 150000);
-    const ws = new WebSocket(WS_URL, { origin: ORIGIN, headers: { "user-agent": UA } });
-    ws.on("open", () => ws.send(JSON.stringify(frame)));
-    ws.on("message", (data) => {
-      const s = data.toString();
-      frames.push(s.slice(0, 1500));
-      try {
-        const o = JSON.parse(s);
-        if (o.type === "error") { wsError = o.errorMessage || o.error || "error"; clearTimeout(timer); finish(); return; }
-        if (typeof o.text === "string") streamText += o.text;
-        else if (typeof o.delta === "string") streamText += o.delta;
-        // Only terminate on the END OF THE WHOLE TURN, NOT on "step-finish",
-        // which fires after each intermediate step (e.g. a single tool call) and
-        // would cut a multi-step agent off at its first action.
-        if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) { clearTimeout(timer); finish(); }
-      } catch { /* non-json */ }
-    });
-    ws.on("error", (e) => { wsError = wsError || e.message; clearTimeout(timer); finish(); });
-    ws.on("close", () => { clearTimeout(timer); finish(); });
-  });
-
-  if (wsError) return res.status(400).json({ error: wsError, frames, interaction_id: iid });
-
-  let reply = streamText.trim();
-  try {
-    await new Promise((r) => setTimeout(r, 800));
-    const r = await fetch(API + "/gummie_interactions/" + iid, { headers: restHeaders(idToken, uid) });
-    if (r.ok) {
-      const d = await r.json();
-      const msgs = (d.interaction && d.interaction.messages) || [];
-      const last = [...msgs].reverse().find((m) => m.role === "assistant");
-      if (last) {
-        const t = (last.parts || []).filter((p) => p.type === "text" && p.text).map((p) => p.text).join("\n");
-        if (t) reply = t;
-      }
-    }
-  } catch { /* keep streamText */ }
-
-  logMessage(iid, "user", message, null);
-  logMessage(iid, "assistant", reply, null);
-
-  res.json({ interaction_id: iid, is_new: isNew, reply: reply || "(no text returned)", frames });
-});
 
 // ===================== Send (STREAMING, Server-Sent Events) =====================
 // Streams the agent's turn to the browser LIVE. Every Gumloop WS frame is
