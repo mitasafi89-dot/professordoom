@@ -1143,3 +1143,68 @@ input, textarea, select { accent-color: var(--brand); }
 .doc-sub { font-size: 11px; color: var(--text-faint); }
 .doc-actions { display: inline-flex; gap: 6px; flex: 0 0 auto; }
 .docs-empty { padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--text-faint); }
+
+/* ===================== Dark theme ===================== */
+/* Opt-in via <html data-theme="dark">. Light remains the default. Almost all
+   surfaces are variable-driven, so the bulk of dark mode is a variable remap;
+   the handful of hardcoded light values below are overridden explicitly. */
+[data-theme="dark"] {
+  /* brand brightened slightly for contrast on dark surfaces */
+  --brand:      #1f93b3;
+  --brand-600:  #2aa1c0;
+  --brand-700:  #38add0;
+  --brand-800:  #15728c;
+  --brand-50:   #0f2329;  /* used as subtle tint/glow backgrounds */
+  --brand-100:  #14323b;
+  --brand-200:  #27505d;
+
+  --gold:       #d3a132;
+  --gold-600:   #e2b146;
+  --gold-soft:  #2b2410;
+
+  /* warm-neutral paper ramp -> deep teal-tinted slate */
+  --bg:          #0c1417;
+  --bg-tint:     #0f181b;
+  --surface:     #121d21;
+  --surface-2:   #16242a;
+  --surface-3:   #1c2e35;
+  --border:      #243239;
+  --border-2:    #2d4048;
+  --border-strong:#3a525c;
+
+  --ink:    #eaf2f4;
+  --text:   #d6e1e5;
+  --text-dim:  #9fb1b8;
+  --text-faint:#6f858d;
+
+  --green: #4cc38a; --green-soft: #102019; --green-line:#1f4533;
+  --amber: #e0b341; --amber-soft: #271f0e; --amber-line:#473c1a;
+  --red:   #ea7d70; --red-soft:   #2a1411; --red-line:  #4d251f;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,.45);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+  --shadow:    0 12px 34px -12px rgba(0,0,0,.65), 0 2px 6px rgba(0,0,0,.45);
+  --shadow-lg: 0 24px 60px -18px rgba(0,0,0,.75), 0 4px 12px rgba(0,0,0,.5);
+  --ring:      0 0 0 3px rgba(31,147,179,.28);
+
+  color-scheme: dark;
+}
+
+/* hardcoded light values that don't follow variables */
+[data-theme="dark"] *::-webkit-scrollbar-thumb { background: #2d4048; }
+[data-theme="dark"] *::-webkit-scrollbar-thumb:hover { background: #3a525c; }
+[data-theme="dark"] .topbar { background: rgba(15,24,27,.82); }
+[data-theme="dark"] .conv:hover,
+[data-theme="dark"] .side-nav:hover,
+[data-theme="dark"] .bk-opt:hover { background: var(--surface-2); }
+[data-theme="dark"] .conv.active,
+[data-theme="dark"] .side-nav.active { background: var(--surface-3); }
+[data-theme="dark"] .crest, [data-theme="dark"] .splash-crest { background-color: var(--surface-3); }
+/* document/image previews keep a white "paper" background by design (readability),
+   so they are intentionally left unchanged in dark mode. */
+
+/* theme toggle icon swap */
+.theme-toggle .ico-sun { display: none; }
+[data-theme="dark"] .theme-toggle .ico-moon { display: none; }
+[data-theme="dark"] .theme-toggle .ico-sun { display: inline; }
+.sidebar-foot .theme-toggle { margin-left: auto; }

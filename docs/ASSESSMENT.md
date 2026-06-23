@@ -252,3 +252,22 @@ files keep metadata + the live URL) and an in-memory fallback when no DB.
 inline serve, idempotency, versioning, and a second deliverable) plus the existing
 auto-continue and credits/errors suites (UI loads with the new controls, zero page
 errors).
+
+## 10. Phase 10, Dark theme
+
+Opt-in dark theme; light remains the default. The UI is variable-driven, so dark
+mode is mainly a remap of the `:root` custom properties under
+`[data-theme="dark"]` on `<html>`, plus explicit overrides for the few hardcoded
+light values (scrollbar thumb, the translucent topbar, conversation/nav/option
+hover+active tints). Document and image previews keep a white "paper" background
+for readability.
+
+- No flash: an inline `<head>` script applies the saved theme before first paint
+  (`localStorage.pd_theme`, default light).
+- Toggle: a sun/moon button in the sidebar footer flips and persists the theme.
+- Palette: deep teal-tinted slate surfaces, brightened brand for contrast,
+  dark-tinted status backgrounds, deeper shadows, and `color-scheme: dark`.
+
+Verified: the headless-browser test loads the page with the new head script and
+toggle wiring with zero page errors; light and dark both render and the toggle
+flips/persists `data-theme`.

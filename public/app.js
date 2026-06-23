@@ -297,6 +297,26 @@ if (docsBtnEl) {
   });
 });
 
+// ---------- theme (light default, dark opt-in; persisted) ----------
+(function wireTheme() {
+  const btn = $('themeToggle');
+  if (!btn) return;
+  const sync = () => {
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    btn.setAttribute('aria-pressed', String(dark));
+    btn.title = dark ? 'Switch to light theme' : 'Switch to dark theme';
+  };
+  sync();
+  btn.addEventListener('click', () => {
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const next = dark ? 'light' : 'dark';
+    if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('pd_theme', next); } catch {}
+    sync();
+  });
+})();
+
 // ---------- profile ----------
 async function loadProfile() {
   try {
