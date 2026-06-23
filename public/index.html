@@ -60,11 +60,35 @@
           </button>
           <div id="convName" class="conv-name">ProfessorDoom</div>
         </div>
-        <div class="model-select">
-          <button id="modelBtn" class="model-btn"><span class="dot"></span><span id="modelLabel">Claude 4.8 Opus</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div id="modelMenu" class="model-menu"></div>
+        <div class="topbar-right">
+          <div id="creditMeter" class="credit-meter" title="Gumloop credits" hidden>
+            <span class="credit-ico" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 20 7 20 17 12 22 4 17 4 7 12 2"/></svg>
+            </span>
+            <div class="credit-info">
+              <div class="credit-bar"><div id="creditBarFill" class="credit-bar-fill"></div></div>
+              <span id="creditText" class="credit-text">Credits</span>
+            </div>
+          </div>
+          <div class="error-wrap">
+            <button id="errorBtn" class="icon-btn error-btn" type="button" aria-label="Gumloop activity and errors" title="Gumloop activity & errors">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span id="errorCount" class="error-count" hidden>0</span>
+            </button>
+            <div id="errorPanel" class="error-panel" hidden>
+              <div class="error-panel-head">
+                <span>Gumloop activity</span>
+                <button id="errorClear" class="error-clear" type="button">Clear</button>
+              </div>
+              <div id="errorList" class="error-list"></div>
+            </div>
+          </div>
+          <div class="model-select">
+            <button id="modelBtn" class="model-btn"><span class="dot"></span><span id="modelLabel">Claude 4.8 Opus</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div id="modelMenu" class="model-menu"></div>
+          </div>
         </div>
       </div>
 

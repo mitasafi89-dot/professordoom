@@ -161,3 +161,31 @@ downloaded/previewed).
 
 **Verified** by the existing `tests/test_autocontinue.js` (all assertions green,
 including the no-typing browser loop) after the changes.
+
+## 8. Phase 8, Credit visibility + error surfacing ✅
+
+**Problem.** Two blind spots: there was no way to see how Gumloop credits were
+being consumed or to know when they were exhausted, and Gumloop-side failures
+(auth, REST, WebSocket, no-output, credit limits) were only ever visible inline
+in a single failed turn — easy to miss, impossible to review after the fact.
+
+**Solution.**
+- **Credits.** `GET /api/credits` mints a token, calls Gumloop's
+  `get_subscription_tier_credit_limit`, and normalizes the (uncontracted) payload
+  defensively — a depth-limited walk matches the usual `used`/`limit`/`remaining`
+  key namings and derives whichever piece is missing, then computes `exhausted`.
+  Cached briefly (`CREDIT_CACHE_MS`, default 15s) so the polling UI doesn't hammer
+  upstream. The header shows a live **credits meter** (bar + "N / M left") that
+  turns amber when low and red when exhausted; on exhaustion the composer is
+  blocked, the auto-continue loop stops, and a banner explains why.
+- **Errors.** A server-side ring buffer (`recordError`, last 30) captures failures
+  from the auth mint, REST proxy, the send WebSocket, no-output diagnostics, and
+  credit checks, each tagged with source/code and a `credit` flag. `GET /api/errors`
+  serves them; `POST /api/errors/clear` empties them. The header gets an **errors
+  bell** with a live count and a dropdown log (source, time, message) so nothing
+  fails silently. Credits + errors refresh on load, every 20s, and after every turn.
+
+**Verified** by `tests/test_credits_errors.js` (credit normalization across flat,
+remaining-only, exhausted, and nested payload shapes; WS-error capture; credit
+flagging; clear) and the existing `tests/test_autocontinue.js` (UI loads with the
+new header controls and **zero page errors**).

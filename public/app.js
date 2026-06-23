@@ -13,6 +13,13 @@ const modelMenu = $('modelMenu');
 const modelLabel = $('modelLabel');
 const convNameEl = $('convName');
 const whoEl = $('who');
+const creditMeterEl = $('creditMeter');
+const creditBarFillEl = $('creditBarFill');
+const creditTextEl = $('creditText');
+const errorBtnEl = $('errorBtn');
+const errorCountEl = $('errorCount');
+const errorPanelEl = $('errorPanel');
+const errorListEl = $('errorList');
 
 let GUMMIE_ID = '';
 let CURRENT_INTERACTION = null;
@@ -95,6 +102,112 @@ async function refreshStatus() {
     bannerEl.textContent = 'Server offline.';
     return false;
   }
+}
+
+// ---------- credits ----------
+let CREDITS_EXHAUSTED = false;
+function fmtNum(n) {
+  if (n == null) return '\u2014';
+  return n >= 1000 ? Math.round(n).toLocaleString() : String(Math.round(n * 10) / 10);
+}
+async function refreshCredits() {
+  if (!creditMeterEl) return;
+  try {
+    const r = await fetch('/api/credits');
+    if (!r.ok) {
+      // The server already recorded the failure; reflect "unavailable" and pull
+      // the error into the log so it isn't silent.
+      creditMeterEl.hidden = false; creditMeterEl.className = 'credit-meter err';
+      if (creditTextEl) creditTextEl.textContent = 'Credits unavailable';
+      if (creditBarFillEl) creditBarFillEl.style.width = '100%';
+      refreshErrors();
+      return;
+    }
+    const c = await r.json();
+    creditMeterEl.hidden = false;
+    const limit = c.limit, used = c.used, remaining = c.remaining;
+    let pctUsed = null;
+    if (limit && limit > 0 && used != null) pctUsed = (used / limit) * 100;
+    else if (limit && limit > 0 && remaining != null) pctUsed = ((limit - remaining) / limit) * 100;
+    if (pctUsed != null) pctUsed = Math.max(0, Math.min(100, pctUsed));
+    CREDITS_EXHAUSTED = !!c.exhausted;
+
+    let cls = 'credit-meter';
+    const lowByRemaining = remaining != null && limit && (remaining / limit) <= 0.1;
+    if (c.exhausted) cls += ' out';
+    else if (lowByRemaining || (pctUsed != null && pctUsed >= 90)) cls += ' low';
+    creditMeterEl.className = cls;
+    if (creditBarFillEl) creditBarFillEl.style.width = (pctUsed == null ? 100 : pctUsed) + '%';
+
+    if (creditTextEl) {
+      if (c.exhausted) creditTextEl.textContent = 'Credits exhausted';
+      else if (remaining != null && limit != null) creditTextEl.textContent = fmtNum(remaining) + ' / ' + fmtNum(limit) + ' left';
+      else if (remaining != null) creditTextEl.textContent = fmtNum(remaining) + ' left';
+      else if (used != null && limit != null) creditTextEl.textContent = fmtNum(used) + ' / ' + fmtNum(limit) + ' used';
+      else if (used != null) creditTextEl.textContent = fmtNum(used) + ' used';
+      else creditTextEl.textContent = 'Credits';
+    }
+    creditMeterEl.title = 'Gumloop credits' + (c.tier ? ' \u00b7 ' + c.tier : '') +
+      (used != null ? ' \u00b7 ' + fmtNum(used) + ' used' : '') + (limit != null ? ' of ' + fmtNum(limit) : '');
+
+    if (c.exhausted) {
+      bannerEl.className = 'banner show warn';
+      bannerEl.innerHTML = '<strong>Out of Gumloop credits.</strong> The agent can\u2019t run until your plan is topped up.';
+    }
+  } catch { /* server-offline is surfaced by refreshStatus */ }
+}
+
+// ---------- error log ----------
+let ERRORS_OPEN = false;
+function relTimeShort(ts) {
+  const t = new Date(ts).getTime(); if (!isFinite(t)) return '';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return s + 's ago';
+  const m = Math.round(s / 60); if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
+async function refreshErrors() {
+  if (!errorBtnEl) return;
+  try {
+    const d = await (await fetch('/api/errors')).json();
+    const errs = d.errors || [];
+    if (errorCountEl) {
+      if (errs.length) { errorCountEl.hidden = false; errorCountEl.textContent = String(errs.length); errorBtnEl.classList.add('has-errors'); }
+      else { errorCountEl.hidden = true; errorBtnEl.classList.remove('has-errors'); }
+    }
+    if (ERRORS_OPEN) renderErrorList(errs);
+  } catch { /* ignore */ }
+}
+function renderErrorList(errs) {
+  if (!errorListEl) return;
+  if (!errs || !errs.length) {
+    errorListEl.innerHTML = '<div class="error-empty">No errors. Gumloop is responding normally.</div>';
+    return;
+  }
+  errorListEl.innerHTML = errs.map((e) =>
+    '<div class="error-item' + (e.credit ? ' credit' : '') + '">' +
+      '<div class="ei-top"><span class="ei-src">' + escH(e.source || 'error') + (e.code ? ' ' + escH(String(e.code)) : '') + '</span>' +
+      '<span class="ei-time">' + escH(relTimeShort(e.ts)) + '</span></div>' +
+      '<div class="ei-msg">' + escH(e.message || '') + '</div></div>').join('');
+}
+if (errorBtnEl) {
+  errorBtnEl.addEventListener('click', async () => {
+    ERRORS_OPEN = !ERRORS_OPEN;
+    if (errorPanelEl) errorPanelEl.hidden = !ERRORS_OPEN;
+    if (ERRORS_OPEN) { try { const d = await (await fetch('/api/errors')).json(); renderErrorList(d.errors || []); } catch { renderErrorList([]); } }
+  });
+  document.addEventListener('click', (e) => {
+    if (ERRORS_OPEN && !e.target.closest('.error-wrap')) { ERRORS_OPEN = false; if (errorPanelEl) errorPanelEl.hidden = true; }
+  });
+}
+const errorClearEl = $('errorClear');
+if (errorClearEl) {
+  errorClearEl.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try { await fetch('/api/errors/clear', { method: 'POST' }); } catch {}
+    renderErrorList([]); refreshErrors();
+  });
 }
 
 // ---------- profile ----------
@@ -644,6 +757,10 @@ async function runTurn(text, opts) {
     setSendingUI(false);
     threadEl.scrollTop = threadEl.scrollHeight;
     busy = false;
+    // After every turn, refresh credit usage and pull any new Gumloop errors so
+    // consumption and failures are always current without a manual reload.
+    refreshCredits();
+    refreshErrors();
   }
   return outcome;
 }
@@ -654,6 +771,7 @@ async function runTurn(text, opts) {
 // stopped, or hits the safety cap. No manual "continue" typing required.
 async function send() {
   if (busy || autoLoopActive) return;
+  if (CREDITS_EXHAUSTED) { flash('Out of Gumloop credits \u2014 top up your plan to continue.'); refreshCredits(); return; }
   const first = inputEl.value.trim();
   if (!first && !ATTACHMENTS.length) return;
   const firstMsg = first || 'Please review the attached file(s).';
@@ -663,7 +781,7 @@ async function send() {
     let outcome = await runTurn(firstMsg, { auto: false });
     if (!outcome.sent) return;
 
-    while (AUTO_CONTINUE && !autoStopRequested
+    while (AUTO_CONTINUE && !autoStopRequested && !CREDITS_EXHAUSTED
            && !outcome.stopped && !outcome.error && !outcome.pending && !outcome.complete) {
       if (autoRounds >= AUTO_CAP) {
         showAutoNote('Auto-continue paused after ' + AUTO_CAP + ' rounds \u2014 press Send to keep going.', true);
@@ -685,6 +803,7 @@ async function send() {
     }
 
     if (outcome.complete) showAutoNote('\u2713 Task complete.', true);
+    else if (CREDITS_EXHAUSTED) showAutoNote('Stopped \u2014 out of Gumloop credits. Top up to continue.', true);
     else if (outcome.pending) showAutoNote('Paused \u2014 the agent needs your input. Reply below.', true);
     else if (outcome.empty && emptyStreak + (outcome.empty ? 1 : 0) >= STALL_CAP) { /* stall note already shown */ }
     else clearAutoNote();
@@ -796,8 +915,10 @@ if (skillSelectEl) {
   if (ok) {
     loadProfile();
     await loadConversations();
+    refreshCredits();
+    refreshErrors();
   }
-  setInterval(refreshStatus, 20000);
+  setInterval(() => { refreshStatus(); refreshCredits(); refreshErrors(); }, 20000);
 })();
 
 

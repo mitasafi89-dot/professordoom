@@ -75,6 +75,67 @@ const DEFAULT_SKILLS = [
 state.skills = {};
 DEFAULT_SKILLS.forEach((s) => { state.skills[s.slug] = { slug: s.slug, label: s.label, filename: "", contract: "" }; });
 
+// ===================== Observability: errors + credits =====================
+// A small in-memory ring buffer of the most recent failures coming back from
+// Gumloop (auth, REST, WebSocket, no-output diagnostics, credit checks) so the
+// UI can surface them instead of leaving the user in the dark.
+state.recentErrors = [];
+function recordError(source, message, code) {
+  const entry = {
+    ts: new Date().toISOString(),
+    source: String(source || "unknown"),
+    message: String(message == null ? "" : message).slice(0, 600),
+    code: code == null ? null : code,
+    // Flag the failures the user most needs to act on.
+    credit: /credit|insufficient|quota|out of|exhaust|billing|payment|402/i.test(String(message || "")),
+  };
+  state.recentErrors.unshift(entry);
+  if (state.recentErrors.length > 30) state.recentErrors.length = 30;
+  return entry;
+}
+
+// Gumloop's credit endpoint shape isn't contractually fixed, so parse it
+// defensively: scan top-level and one-nested-level numeric fields and match the
+// usual key names, then derive whichever of used/limit/remaining is missing.
+function normalizeCredits(raw) {
+  const out = { used: null, limit: null, remaining: null, tier: null, raw: raw };
+  if (!raw || typeof raw !== "object") return out;
+  const flat = {};
+  const add = (k, v) => {
+    if (typeof v === "number" && isFinite(v)) flat[k.toLowerCase()] = v;
+    else if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) flat[k.toLowerCase()] = Number(v);
+  };
+  // Walk the object up to a few levels deep so flat OR nested payload shapes
+  // (e.g. {credits_used: N} or {data:{credits:{used:N}}}) both resolve.
+  const walk = (obj, prefix, depth) => {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj) || depth > 4) return;
+    for (const [k, v] of Object.entries(obj)) {
+      const key = prefix ? prefix + "." + k : k;
+      if (v && typeof v === "object" && !Array.isArray(v)) walk(v, key, depth + 1);
+      else add(key, v);
+      if (typeof v === "string" && /tier|plan/i.test(k) && !out.tier) out.tier = v;
+    }
+  };
+  walk(raw, "", 0);
+  const find = (...res) => {
+    for (const re of res) for (const k of Object.keys(flat)) if (re.test(k)) return flat[k];
+    return null;
+  };
+  out.limit = find(/(credit.*limit|limit.*credit|total.*credit|credit.*total|max.*credit|monthly.*credit|quota)/, /\blimit\b|\btotal\b|\bquota\b|\bcap\b/);
+  out.used = find(/(credit.*used|used.*credit|consumed|credit.*consumed|credits?_?used|usage)/, /\bused\b|\bconsumed\b|\busage\b|\bspent\b/);
+  out.remaining = find(/(remaining|credits?_?left|available|credit.*balance|\bbalance\b)/, /\bremaining\b|\bleft\b|\bavailable\b|\bbalance\b/);
+  if (out.remaining == null && out.limit != null && out.used != null) out.remaining = out.limit - out.used;
+  if (out.used == null && out.limit != null && out.remaining != null) out.used = out.limit - out.remaining;
+  if (out.limit == null && out.used != null && out.remaining != null) out.limit = out.used + out.remaining;
+  out.exhausted = out.remaining != null ? out.remaining <= 0
+    : (out.limit != null && out.used != null ? out.used >= out.limit : false);
+  return out;
+}
+
+let creditCache = { ts: 0, data: null };
+const CREDIT_CACHE_MS = parseInt(process.env.CREDIT_CACHE_MS || "", 10) >= 0
+  ? parseInt(process.env.CREDIT_CACHE_MS, 10) : 15000;
+
 // Is an admin password actually enforced? Only when one is configured.
 function adminAuthRequired() {
   return Boolean(state.adminPassword && state.adminPassword.length);
@@ -360,6 +421,40 @@ app.get("/api/status", (req, res) => {
   });
 });
 
+// Live Gumloop credit usage/limit. Cached briefly so the polling UI doesn't
+// hammer the upstream. Records a structured error (and reports it) on failure.
+app.get("/api/credits", async (req, res) => {
+  if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
+  const now = Date.now();
+  if (creditCache.data && now - creditCache.ts < CREDIT_CACHE_MS) return res.json(creditCache.data);
+  try {
+    const { idToken, uid } = await mintIdToken();
+    const r = await fetch(API + "/get_subscription_tier_credit_limit", { headers: restHeaders(idToken, uid) });
+    const text = await r.text();
+    let raw = null; try { raw = JSON.parse(text); } catch {}
+    if (!r.ok) {
+      const msg = "Credit check failed (HTTP " + r.status + ")" + (text ? ": " + text.slice(0, 200) : "");
+      recordError("credits", msg, r.status);
+      return res.status(502).json({ error: msg, status: r.status });
+    }
+    const data = normalizeCredits(raw);
+    creditCache = { ts: now, data };
+    res.json(data);
+  } catch (e) {
+    recordError("credits", e.message);
+    res.status(502).json({ error: "Credit check failed: " + e.message });
+  }
+});
+
+// Recent Gumloop-side errors (auth / REST / WebSocket / no-output / credits).
+app.get("/api/errors", (req, res) => {
+  res.json({ errors: state.recentErrors, count: state.recentErrors.length });
+});
+app.post("/api/errors/clear", (req, res) => {
+  state.recentErrors = [];
+  res.json({ ok: true });
+});
+
 // Current non-secret config, so the admin form can REPOPULATE on load.
 // This is why a refresh no longer looks like it "wiped" your settings, the
 // stored values are shown right back to you.
@@ -637,7 +732,7 @@ app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
     const r = await fetch(API + "/" + rest, init);
     const text = await r.text();
     res.status(r.status).set("content-type", r.headers.get("content-type") || "application/json").send(text);
-  } catch (err) { res.status(502).json({ error: "Upstream failed: " + err.message }); }
+  } catch (err) { recordError("rest", err.message); res.status(502).json({ error: "Upstream failed: " + err.message }); }
 });
 
 // ===================== Send (manual-captcha, WebSocket) =====================
@@ -674,7 +769,7 @@ app.post("/api/send", async (req, res) => {
 
   let idToken, uid;
   try { ({ idToken, uid } = await mintIdToken()); }
-  catch (e) { return res.status(401).json({ error: e.message }); }
+  catch (e) { recordError("auth", e.message); return res.status(401).json({ error: e.message }); }
 
   const iid = (interaction_id && interaction_id.trim()) || genId();
   const isNew = !interaction_id;
@@ -787,7 +882,7 @@ app.post("/api/send/stream", async (req, res) => {
 
   let idToken, uid;
   try { ({ idToken, uid } = await mintIdToken()); }
-  catch (e) { return res.status(401).json({ error: e.message }); }
+  catch (e) { recordError("auth", e.message); return res.status(401).json({ error: e.message }); }
 
   // SSE headers, open a persistent, unbuffered event stream to the browser.
   res.writeHead(200, {
@@ -901,8 +996,8 @@ app.post("/api/send/stream", async (req, res) => {
         diagnostic = "The agent produced no text for this turn. If it repeats, re-check the session in /admin and serve from a non-localhost host so verification tokens are accepted.";
       }
     }
-    if (wsError) sse("error", { error: wsError });
-    else if (noOutput) sse("error", { error: diagnostic });
+    if (wsError) { recordError("send", wsError, closeInfo && closeInfo.code); sse("error", { error: wsError }); }
+    else if (noOutput) { recordError("send", diagnostic, restStatus || (closeInfo && closeInfo.code)); sse("error", { error: diagnostic }); }
     sse("done", { interaction_id: iid, is_new: isNew, reply: reply || diagnostic || "(no text returned)", parts, pending, complete, diagnostic });
     try { res.end(); } catch {}
   };
