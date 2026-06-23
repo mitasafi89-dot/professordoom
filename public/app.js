@@ -32,9 +32,17 @@ let SELECTED_SKILL = localStorage.getItem('pd_skill') || '';
 let DB_CONNECTED = true; // whether the server is connected to Supabase (drives an honest skill note)
 // ---- Auto-continue: keep the agent working turn-after-turn without the user
 // typing "continue". Persisted; capped for safety so it can never run away.
-let AUTO_CONTINUE = localStorage.getItem('pd_autocontinue') === '1';
+// DEFAULT ON: long, multi-phase contract work (the common case here) should
+// drive itself. A user who explicitly turns it off ('0') is respected; only an
+// unset preference defaults to on.
+let AUTO_CONTINUE = (localStorage.getItem('pd_autocontinue') || '1') !== '0';
 const AUTO_CAP = (function () { const n = parseInt(localStorage.getItem('pd_autocap') || '', 10); return Number.isFinite(n) && n > 0 ? n : 25; })();
+// If several auto-continue turns in a row produce NO new output (the agent is
+// re-announcing the same next step without doing it, exactly the failure seen
+// in long manuscript runs), stop the loop instead of burning turns/credits.
+const STALL_CAP = (function () { const n = parseInt(localStorage.getItem('pd_stallcap') || '', 10); return Number.isFinite(n) && n > 0 ? n : 3; })();
 let autoRounds = 0;            // consecutive auto-continues in the current run
+let emptyStreak = 0;           // consecutive turns that produced no new output
 let autoStopRequested = false; // set by Stop / toggle-off to break the loop
 let autoLoopActive = false;    // a send()+auto-continue run is in progress
 
@@ -297,7 +305,11 @@ function renderAssistantParts(parts) {
       thinking += (thinking ? '\n\n' : '') + p.reasoning;
     } else if (p.type === 'tool_invocation') {
       const cap = p.toolCaption || p.toolName || 'tool';
-      const st = (p.toolCallState || '').toLowerCase();
+      // This is the AUTHORITATIVE render of a finished turn. A chip left at
+      // "pending"/"running"/"" here is misleading (the tool already ran, Gumloop
+      // just didn't echo a terminal state), so normalize it to a neutral "done".
+      let st = (p.toolCallState || '').toLowerCase();
+      if (!st || st === 'pending' || st === 'running' || st === 'in_progress' || st === 'in-progress' || st === 'started') st = 'done';
       toolSteps.push(toolStepHTML(cap, p.toolName || '', st));
       if (p.toolName === 'ask_human_input') {
         try {
@@ -323,7 +335,15 @@ function renderAssistantParts(parts) {
   if (answer) html += '<div class="answer">' + answer + '</div>';
   if (files) html += '<div class="files">' + files + '</div>';
   if (ask) html += ask;
-  return html || render('(no content)');
+  // A turn with no thinking, no tool, no answer and no file is a wasted turn.
+  // Don't render a dead "(no content)" bubble: show an honest, muted note (and,
+  // under auto-continue, make clear the loop is carrying on / will stop if this
+  // keeps happening).
+  if (!html) {
+    return '<div class="empty-turn">No visible output this turn.' +
+      (AUTO_CONTINUE ? ' Continuing automatically\u2026' : '') + '</div>';
+  }
+  return html;
 }
 
 // ---------- captcha ----------
@@ -508,7 +528,7 @@ async function recoverTurn(bubble, live) {
 // live, and return its outcome so the auto-continue loop can decide what's next.
 async function runTurn(text, opts) {
   opts = opts || {};
-  const outcome = { pending: false, complete: false, error: false, stopped: false, sent: false };
+  const outcome = { pending: false, complete: false, error: false, stopped: false, sent: false, empty: false };
 
   const { hcaptcha_token, turnstile_token } = await executeCaptcha();
   if (!hcaptcha_token) {
@@ -588,6 +608,14 @@ async function runTurn(text, opts) {
             finished = true;
             outcome.pending = !!obj.pending;
             outcome.complete = !!obj.complete;
+            // Did this turn make real progress (any answer text, tool call, or
+            // file)? Reasoning-only / blank turns count as "empty" so the
+            // auto-continue loop can break a re-announcement stall.
+            const rep = (obj.reply || '').trim();
+            const repReal = rep && rep !== '(no text returned)' && rep !== '(no content)';
+            const partsReal = Array.isArray(obj.parts) && obj.parts.some(
+              (p) => (p.type === 'text' && p.text) || p.type === 'tool_invocation' || p.type === 'file');
+            outcome.empty = !repReal && !partsReal;
             if (obj.parts && obj.parts.length) bubble.innerHTML = renderAssistantParts(obj.parts);
             else bubble.innerHTML = render(obj.reply || live.answer || '(no text returned)');
             loadConversations();
@@ -630,7 +658,7 @@ async function send() {
   if (!first && !ATTACHMENTS.length) return;
   const firstMsg = first || 'Please review the attached file(s).';
 
-  autoRounds = 0; autoStopRequested = false; autoLoopActive = true;
+  autoRounds = 0; emptyStreak = 0; autoStopRequested = false; autoLoopActive = true;
   try {
     let outcome = await runTurn(firstMsg, { auto: false });
     if (!outcome.sent) return;
@@ -639,6 +667,14 @@ async function send() {
            && !outcome.stopped && !outcome.error && !outcome.pending && !outcome.complete) {
       if (autoRounds >= AUTO_CAP) {
         showAutoNote('Auto-continue paused after ' + AUTO_CAP + ' rounds \u2014 press Send to keep going.', true);
+        return;
+      }
+      // Stall guard: if the agent keeps ending turns without producing anything
+      // new (the "re-announcing the same step" failure), stop instead of
+      // burning the rest of the cap on empty turns.
+      emptyStreak = outcome.empty ? emptyStreak + 1 : 0;
+      if (emptyStreak >= STALL_CAP) {
+        showAutoNote('Auto-continue stopped: ' + STALL_CAP + ' turns with no new output. Nudge the agent with a specific instruction.', true);
         return;
       }
       autoRounds++;
@@ -650,6 +686,7 @@ async function send() {
 
     if (outcome.complete) showAutoNote('\u2713 Task complete.', true);
     else if (outcome.pending) showAutoNote('Paused \u2014 the agent needs your input. Reply below.', true);
+    else if (outcome.empty && emptyStreak + (outcome.empty ? 1 : 0) >= STALL_CAP) { /* stall note already shown */ }
     else clearAutoNote();
   } finally {
     autoLoopActive = false;

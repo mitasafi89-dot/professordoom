@@ -134,3 +134,30 @@ manual or automatic, with no extra clicking in the common low-risk case
 directive injection, `complete`/`pending` detection, and a real loop where one
 user message drives multiple turns and stops on `⟦TASK_COMPLETE⟧` with zero
 human typing and zero page errors.
+
+## 7. Phase 7, Stall-proofing + honest turn status ✅
+
+**Problem.** A long manuscript run (see `docs/SESSION_ANALYSIS_SME.md`) exposed
+that auto-continue, though built, was OFF by default — so the user typed
+"continue" ~25 times. Worse, the agent fragmented work across turns: eight
+near-identical "now I'm writing the manuscript" announcements with no file in
+between, a wall of `(no content)` bubbles, tool chips frozen at `pending`, and
+deliverables that were never exported as artifacts (so they couldn't be
+downloaded/previewed).
+
+**Solution.**
+- **Auto-continue ON by default** (explicit `0` still respected). Long contract
+  work drives itself; safety cap + Stop unchanged.
+- **Stall guard** (`STALL_CAP`, default 3): the loop breaks after N consecutive
+  no-progress turns with an actionable note, instead of spinning to the cap.
+  `runTurn` reports `outcome.empty` from the authoritative `done` parts.
+- **`pending` reconciliation**: on the final re-render, non-terminal tool states
+  are normalised to a neutral `done` — no more false "stuck" spinners.
+- **`(no content)` → honest muted note** instead of a dead bubble.
+- **Hardened AUTONOMOUS directive**: forbids re-announcement stalls ("if you're
+  about to write it, write it this turn"; "never repeat the same next-step
+  sentence") and makes artifact export mandatory before `⟦TASK_COMPLETE⟧` (a
+  file that lives only in the sandbox has not been delivered).
+
+**Verified** by the existing `tests/test_autocontinue.js` (all assertions green,
+including the no-typing browser loop) after the changes.

@@ -628,6 +628,14 @@ button { font-family: inherit; }
 /* Subtle marker for an auto-sent "continue" user bubble */
 .msg.auto-msg .bubble { opacity: .8; font-style: italic; }
 
+/* A turn that produced nothing visible: an honest muted note, not a dead bubble. */
+.empty-turn {
+  font-size: 13.5px;
+  color: var(--muted, #8a8f98);
+  font-style: italic;
+  padding: 2px 0;
+}
+
 /* Honest skill-note state when DB is disconnected / contract missing */
 .skill-note.warn { color: var(--amber); }
 

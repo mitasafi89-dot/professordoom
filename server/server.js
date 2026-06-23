@@ -648,9 +648,22 @@ const AUTOCONTINUE_DIRECTIVE =
   '[AUTONOMOUS MODE] You are running without a human pressing "continue" between turns. ' +
   'Work straight through the ENTIRE task across as many turns as needed, always resuming exactly where you left off. ' +
   'Do NOT stop to ask whether you should continue, and do NOT end a turn with offers like "want me to proceed?". ' +
-  'Stop only when ONE of these is true: (a) the whole task is genuinely complete \u2014 then end your FINAL message ' +
-  'with the exact token \u27e6TASK_COMPLETE\u27e7 on its own line; or (b) you truly need a decision or information ' +
-  'from the user before you can proceed \u2014 then ask via the ask_human_input tool and do NOT emit the completion token.';
+  // Anti-stall: the most common failure in long runs is re-announcing the same
+  // next step ("Now I\u2019m writing the manuscript\u2026") turn after turn without ever
+  // doing it. Every turn must change the world, not just describe intent.
+  'NEVER end a turn that made no concrete progress. Each turn must either (i) make a real tool call that ' +
+  'creates or changes a file/artifact, or (ii) deliver new written output. Do NOT spend a turn merely restating ' +
+  'what you are "about to" do \u2014 if you are about to write something, write it in THIS turn. Never repeat the ' +
+  'same "next I will\u2026" sentence across turns; if the same step keeps recurring, you are stalling \u2014 just execute it. ' +
+  // Deliverable handoff: files that live only in the sandbox are invisible to
+  // the user. Anything they must read/download has to be exported as an artifact.
+  'Any file the user must see (manuscript, figures, tables, datasets, cover letter, checklist) MUST be exported as a ' +
+  'downloadable artifact via sandbox_download \u2014 a file that exists only inside the sandbox has NOT been delivered. ' +
+  'Before emitting the completion token, confirm every deliverable has been exported and is downloadable. ' +
+  'Stop only when ONE of these is true: (a) the whole task is genuinely complete AND all deliverables are exported \u2014 ' +
+  'then end your FINAL message with the exact token \u27e6TASK_COMPLETE\u27e7 on its own line; or (b) you truly need a ' +
+  'decision or information from the user before you can proceed \u2014 then ask via the ask_human_input tool and do ' +
+  'NOT emit the completion token.';
 
 app.post("/api/send", async (req, res) => {
   if (!state.refreshToken) return res.status(503).json({ error: "Not configured." });
