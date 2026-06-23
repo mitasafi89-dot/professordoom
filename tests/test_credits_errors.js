@@ -20,6 +20,7 @@ const SRV_PORT = 4731;
 const ROOT = path.join(__dirname, "..");
 
 let creditPayload = {}; // mutated per phase
+let restrictionPayload = { has_restriction: false, credit_restriction: null, remaining: null, restriction_renewal_date: null };
 let wsErrorMessage = "insufficient credits for this run";
 
 const j = (res, code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
@@ -27,7 +28,13 @@ const mock = http.createServer((req, res) => {
   const p = new URL(req.url, "http://x").pathname;
   if (req.method === "POST" && p === "/v1/token")
     return j(res, 200, { id_token: "mock_id", refresh_token: "mock_rt", user_id: "uid_mock", expires_in: "3600" });
-  if (p === "/get_subscription_tier_credit_limit") return j(res, 200, creditPayload);
+  // The real endpoint REQUIRES ?user_id= — assert the server actually sends it.
+  if (p === "/get_subscription_tier_credit_limit") {
+    const uid = new URL(req.url, "http://x").searchParams.get("user_id");
+    if (!uid) return j(res, 400, { error: "user_id required" });
+    return j(res, 200, creditPayload);
+  }
+  if (/^\/user\/[^/]+\/credit_restriction_details$/.test(p)) return j(res, 200, restrictionPayload);
   if (/^\/gummie_interactions\//.test(p))
     return j(res, 200, { interaction: { name: "Conv", messages: [] } });
   return j(res, 200, {});
@@ -85,25 +92,35 @@ async function waitStatus() { for (let i = 0; i < 50; i++) { try { const r = awa
   srv.stderr.on("data", () => {});
   await waitStatus();
 
-  console.log("\nPART A \u2014 credit normalization across shapes");
-  creditPayload = { credits_used: 100, credit_limit: 1000, subscription_tier: "Pro" };
+  console.log("\nPART A \u2014 real Gumloop shape (from HAR) + fallback");
+  // Exact shape captured in the HAR: credit_limit + remaining, no "used",
+  // remaining can exceed the limit (overage/rollover).
+  creditPayload = { credit_limit: 5000, remaining: 6358, is_past_due: false, credit_overage_unavailable_reason: null };
   let c = (await getJSON("/api/credits")).body;
-  ok(c.used === 100 && c.limit === 1000, "used/limit parsed (used=" + c.used + ", limit=" + c.limit + ")");
-  ok(c.remaining === 900, "remaining derived = 900 (got " + c.remaining + ")");
-  ok(c.exhausted === false, "not exhausted when remaining > 0");
-  ok(c.tier === "Pro", "tier surfaced (" + c.tier + ")");
+  ok(c.limit === 5000 && c.remaining === 6358, "real shape: limit=5000, remaining=6358 (got " + c.limit + "/" + c.remaining + ")");
+  ok(c.used === 0, "used derived & floored at 0 when remaining > limit (got " + c.used + ")");
+  ok(c.exhausted === false && c.blocked === false, "healthy account not exhausted/blocked");
 
-  creditPayload = { used_credits: 1000, credit_limit: 1000 };
+  creditPayload = { credit_limit: 5000, remaining: 0, is_past_due: false, credit_overage_unavailable_reason: null };
   c = (await getJSON("/api/credits")).body;
-  ok(c.remaining === 0 && c.exhausted === true, "exhausted=true when used == limit (remaining=" + c.remaining + ")");
+  ok(c.remaining === 0 && c.exhausted === true && c.blocked === true, "remaining 0 -> exhausted & blocked");
 
-  creditPayload = { credits_remaining: 5, credit_limit: 200 };
+  creditPayload = { credit_limit: 5000, remaining: 1200, is_past_due: true, credit_overage_unavailable_reason: "Payment past due" };
   c = (await getJSON("/api/credits")).body;
-  ok(c.remaining === 5 && c.used === 195 && c.exhausted === false, "remaining-only shape derives used=195 (got used=" + c.used + ")");
+  ok(c.pastDue === true && c.blocked === true, "is_past_due -> blocked even with credits left");
+  ok(c.restrictionReason === "Payment past due", "overage reason surfaced (" + c.restrictionReason + ")");
 
+  // Restriction-details endpoint is the authoritative block signal.
+  creditPayload = { credit_limit: 5000, remaining: 800, is_past_due: false };
+  restrictionPayload = { has_restriction: true, credit_restriction: "free_tier_cap", remaining: 0 };
+  c = (await getJSON("/api/credits")).body;
+  ok(c.restricted === true && c.blocked === true, "has_restriction -> restricted & blocked");
+  restrictionPayload = { has_restriction: false, credit_restriction: null, remaining: null };
+
+  // Defensive fallback still works for an unknown/nested shape.
   creditPayload = { data: { credits: { used: 40, limit: 50 } } };
   c = (await getJSON("/api/credits")).body;
-  ok(c.used === 40 && c.limit === 50 && c.remaining === 10, "nested shape parsed (used=" + c.used + ", remaining=" + c.remaining + ")");
+  ok(c.used === 40 && c.limit === 50 && c.remaining === 10, "fallback parses unknown nested shape (used=" + c.used + ", remaining=" + c.remaining + ")");
 
   console.log("\nPART B \u2014 Gumloop error surfacing");
   await postJSON("/api/errors/clear", {});

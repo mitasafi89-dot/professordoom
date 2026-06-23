@@ -97,16 +97,16 @@ function recordError(source, message, code) {
 // Gumloop's credit endpoint shape isn't contractually fixed, so parse it
 // defensively: scan top-level and one-nested-level numeric fields and match the
 // usual key names, then derive whichever of used/limit/remaining is missing.
-function normalizeCredits(raw) {
-  const out = { used: null, limit: null, remaining: null, tier: null, raw: raw };
+// Defensive fallback for an UNKNOWN credit payload shape: walk a few levels deep
+// and match the usual key namings. Only used when the known fields are absent.
+function genericCredits(raw) {
+  const out = { used: null, limit: null, remaining: null, tier: null };
   if (!raw || typeof raw !== "object") return out;
   const flat = {};
   const add = (k, v) => {
     if (typeof v === "number" && isFinite(v)) flat[k.toLowerCase()] = v;
     else if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) flat[k.toLowerCase()] = Number(v);
   };
-  // Walk the object up to a few levels deep so flat OR nested payload shapes
-  // (e.g. {credits_used: N} or {data:{credits:{used:N}}}) both resolve.
   const walk = (obj, prefix, depth) => {
     if (!obj || typeof obj !== "object" || Array.isArray(obj) || depth > 4) return;
     for (const [k, v] of Object.entries(obj)) {
@@ -124,13 +124,51 @@ function normalizeCredits(raw) {
   out.limit = find(/(credit.*limit|limit.*credit|total.*credit|credit.*total|max.*credit|monthly.*credit|quota)/, /\blimit\b|\btotal\b|\bquota\b|\bcap\b/);
   out.used = find(/(credit.*used|used.*credit|consumed|credit.*consumed|credits?_?used|usage)/, /\bused\b|\bconsumed\b|\busage\b|\bspent\b/);
   out.remaining = find(/(remaining|credits?_?left|available|credit.*balance|\bbalance\b)/, /\bremaining\b|\bleft\b|\bavailable\b|\bbalance\b/);
-  if (out.remaining == null && out.limit != null && out.used != null) out.remaining = out.limit - out.used;
-  if (out.used == null && out.limit != null && out.remaining != null) out.used = out.limit - out.remaining;
-  if (out.limit == null && out.used != null && out.remaining != null) out.limit = out.used + out.remaining;
-  out.exhausted = out.remaining != null ? out.remaining <= 0
-    : (out.limit != null && out.used != null ? out.used >= out.limit : false);
   return out;
 }
+
+// Normalize Gumloop's credit response. The REAL shape (confirmed from a captured
+// HAR) is { credit_limit, remaining, is_past_due, credit_overage_unavailable_reason,
+// ... } with NO "used" field — used is derived as limit - remaining, and remaining
+// can exceed the limit (overage/rollover). `restriction` is the optional
+// /credit_restriction_details payload, the authoritative "blocked" signal.
+function normalizeCredits(raw, restriction) {
+  const out = { used: null, limit: null, remaining: null, tier: null,
+                pastDue: false, restricted: false, restrictionReason: null, raw: raw };
+  const num = (v) => (typeof v === "number" && isFinite(v)) ? v
+    : (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v)) ? Number(v) : null);
+  if (raw && typeof raw === "object") {
+    out.limit = num(raw.credit_limit);
+    out.remaining = num(raw.remaining);
+    out.pastDue = raw.is_past_due === true;
+    if (typeof raw.credit_overage_unavailable_reason === "string" && raw.credit_overage_unavailable_reason.trim())
+      out.restrictionReason = raw.credit_overage_unavailable_reason;
+    if (typeof raw.subscription_tier === "string") out.tier = raw.subscription_tier;
+    // Fall back to the generic matcher only for fields the known shape didn't fill.
+    if (out.limit == null || out.remaining == null || out.tier == null) {
+      const g = genericCredits(raw);
+      if (out.limit == null) out.limit = g.limit;
+      if (out.remaining == null) out.remaining = g.remaining;
+      if (out.used == null) out.used = g.used;
+      if (out.tier == null) out.tier = g.tier;
+    }
+  }
+  if (restriction && typeof restriction === "object") {
+    out.restricted = restriction.has_restriction === true;
+    if (restriction.credit_restriction && !out.restrictionReason) out.restrictionReason = String(restriction.credit_restriction);
+    if (out.remaining == null) out.remaining = num(restriction.remaining);
+  }
+  if (out.remaining == null && out.limit != null && out.used != null) out.remaining = out.limit - out.used;
+  if (out.used == null && out.limit != null && out.remaining != null) out.used = Math.max(0, out.limit - out.remaining);
+  out.exhausted = out.remaining != null ? out.remaining <= 0
+    : (out.limit != null && out.used != null ? out.used >= out.limit : false);
+  // What the UI should treat as "cannot run": no credits, an active restriction,
+  // or a past-due account.
+  out.blocked = out.exhausted || out.restricted || out.pastDue;
+  return out;
+}
+
+
 
 let creditCache = { ts: 0, data: null };
 const CREDIT_CACHE_MS = parseInt(process.env.CREDIT_CACHE_MS || "", 10) >= 0
@@ -429,7 +467,13 @@ app.get("/api/credits", async (req, res) => {
   if (creditCache.data && now - creditCache.ts < CREDIT_CACHE_MS) return res.json(creditCache.data);
   try {
     const { idToken, uid } = await mintIdToken();
-    const r = await fetch(API + "/get_subscription_tier_credit_limit", { headers: restHeaders(idToken, uid) });
+    const qs = "?user_id=" + encodeURIComponent(uid);
+    // The credit endpoint REQUIRES user_id (confirmed from the captured HAR).
+    // Fetch the restriction details in parallel for the authoritative block signal.
+    const [r, rr] = await Promise.all([
+      fetch(API + "/get_subscription_tier_credit_limit" + qs, { headers: restHeaders(idToken, uid) }),
+      fetch(API + "/user/" + encodeURIComponent(uid) + "/credit_restriction_details", { headers: restHeaders(idToken, uid) }).catch(() => null),
+    ]);
     const text = await r.text();
     let raw = null; try { raw = JSON.parse(text); } catch {}
     if (!r.ok) {
@@ -437,7 +481,9 @@ app.get("/api/credits", async (req, res) => {
       recordError("credits", msg, r.status);
       return res.status(502).json({ error: msg, status: r.status });
     }
-    const data = normalizeCredits(raw);
+    let restriction = null;
+    if (rr && rr.ok) { try { restriction = JSON.parse(await rr.text()); } catch {} }
+    const data = normalizeCredits(raw, restriction);
     creditCache = { ts: now, data };
     res.json(data);
   } catch (e) {

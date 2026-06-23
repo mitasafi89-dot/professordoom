@@ -189,3 +189,25 @@ in a single failed turn — easy to miss, impossible to review after the fact.
 remaining-only, exhausted, and nested payload shapes; WS-error capture; credit
 flagging; clear) and the existing `tests/test_autocontinue.js` (UI loads with the
 new header controls and **zero page errors**).
+
+### 8a. Phase 8 correction, real credit endpoint shape (from HAR) ✅
+
+The first cut of `/api/credits` guessed the upstream contract. A captured HAR
+pinned down the truth and exposed a real bug:
+
+- The endpoint **requires** `?user_id={uid}` — the first version omitted it.
+- The real response is `{ credit_limit, remaining, is_past_due,
+  credit_overage_unavailable_reason, pending_credit_limit, ... }`. There is **no
+  `used` field** (it's derived as `limit - remaining`, floored at 0), and
+  `remaining` can **exceed** `credit_limit` via overage/rollover (e.g. 6358/5000).
+- A second endpoint, `GET /user/{uid}/credit_restriction_details`
+  (`{ has_restriction, credit_restriction, remaining, ... }`), is the
+  authoritative "blocked" signal.
+
+Fixes: pass `user_id`; parse the real fields precisely (keeping the generic
+walk as a fallback for unknown shapes); fetch restriction details in parallel;
+expose `pastDue`, `restricted`, `restrictionReason`, and a single `blocked`
+flag. The meter is now a **depleting "remaining" bar** (full = healthy, capped at
+100% when remaining > limit), and the composer/auto-loop stop on `blocked`
+(exhausted OR restricted OR past-due), with the reason shown in the banner.
+Verified against the exact HAR shape in `tests/test_credits_errors.js`.

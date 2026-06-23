@@ -26,7 +26,8 @@ Headers: `authorization: Bearer <id_token>`, `x-auth-key: <user_id>`, `origin: h
 | Conversations | `GET /gummies/{id}/chat?page_size=24&sort_order=newest` |
 | Message thread | `GET /gummie_interactions/{interaction_id}` → `interaction.messages[]` |
 | Live queue | `GET /gummie_interactions/{id}/queue` |
-| Credits | `GET /get_subscription_tier_credit_limit` |
+| Credits | `GET /get_subscription_tier_credit_limit?user_id={uid}` (the `user_id` query param is REQUIRED) |
+| Credit restriction | `GET /user/{uid}/credit_restriction_details` |
 | Set model | `GET /gummies/{id}` → edit `model_name` → `PATCH /gummies/{id}` |
 
 Model `claude-opus-4-8` = **Claude 4.8 Opus** (Auto selector value `gummies_smartest`).

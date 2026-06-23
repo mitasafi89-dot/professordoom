@@ -125,34 +125,40 @@ async function refreshCredits() {
     }
     const c = await r.json();
     creditMeterEl.hidden = false;
-    const limit = c.limit, used = c.used, remaining = c.remaining;
-    let pctUsed = null;
-    if (limit && limit > 0 && used != null) pctUsed = (used / limit) * 100;
-    else if (limit && limit > 0 && remaining != null) pctUsed = ((limit - remaining) / limit) * 100;
-    if (pctUsed != null) pctUsed = Math.max(0, Math.min(100, pctUsed));
-    CREDITS_EXHAUSTED = !!c.exhausted;
+    const limit = c.limit, remaining = c.remaining;
+    // Depleting bar: fraction of the limit still REMAINING (full = healthy,
+    // empty = none). remaining can exceed the limit (overage/rollover) so cap at 100%.
+    let pctLeft = null;
+    if (limit && limit > 0 && remaining != null) pctLeft = Math.max(0, Math.min(100, (remaining / limit) * 100));
+    // Treat a restriction / past-due / zero balance as "cannot run".
+    CREDITS_EXHAUSTED = !!(c.blocked || c.exhausted);
 
     let cls = 'credit-meter';
-    const lowByRemaining = remaining != null && limit && (remaining / limit) <= 0.1;
-    if (c.exhausted) cls += ' out';
-    else if (lowByRemaining || (pctUsed != null && pctUsed >= 90)) cls += ' low';
+    if (c.blocked || c.exhausted) cls += ' out';
+    else if (pctLeft != null && pctLeft <= 10) cls += ' low';
     creditMeterEl.className = cls;
-    if (creditBarFillEl) creditBarFillEl.style.width = (pctUsed == null ? 100 : pctUsed) + '%';
+    if (creditBarFillEl) creditBarFillEl.style.width = (pctLeft == null ? 100 : pctLeft) + '%';
 
     if (creditTextEl) {
       if (c.exhausted) creditTextEl.textContent = 'Credits exhausted';
+      else if (c.restricted) creditTextEl.textContent = 'Credits restricted';
+      else if (c.pastDue) creditTextEl.textContent = 'Account past due';
       else if (remaining != null && limit != null) creditTextEl.textContent = fmtNum(remaining) + ' / ' + fmtNum(limit) + ' left';
       else if (remaining != null) creditTextEl.textContent = fmtNum(remaining) + ' left';
-      else if (used != null && limit != null) creditTextEl.textContent = fmtNum(used) + ' / ' + fmtNum(limit) + ' used';
-      else if (used != null) creditTextEl.textContent = fmtNum(used) + ' used';
       else creditTextEl.textContent = 'Credits';
     }
     creditMeterEl.title = 'Gumloop credits' + (c.tier ? ' \u00b7 ' + c.tier : '') +
-      (used != null ? ' \u00b7 ' + fmtNum(used) + ' used' : '') + (limit != null ? ' of ' + fmtNum(limit) : '');
+      (remaining != null ? ' \u00b7 ' + fmtNum(remaining) + ' remaining' : '') +
+      (limit != null ? ' of ' + fmtNum(limit) : '') +
+      (c.restrictionReason ? ' \u00b7 ' + c.restrictionReason : '');
 
-    if (c.exhausted) {
+    if (c.blocked || c.exhausted) {
+      const why = c.restrictionReason ? (' ' + c.restrictionReason)
+        : c.pastDue ? ' Your account is past due.'
+        : c.restricted ? ' Your credits are restricted.'
+        : ' The agent can\u2019t run until your plan is topped up.';
       bannerEl.className = 'banner show warn';
-      bannerEl.innerHTML = '<strong>Out of Gumloop credits.</strong> The agent can\u2019t run until your plan is topped up.';
+      bannerEl.innerHTML = '<strong>Out of Gumloop credits.</strong>' + escH(why);
     }
   } catch { /* server-offline is surfaced by refreshStatus */ }
 }
