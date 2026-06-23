@@ -21,6 +21,8 @@ const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const net = require("net");
+const dns = require("dns").promises;
 const WebSocket = require("ws");
 const { Pool } = require("pg");
 
@@ -488,7 +490,7 @@ async function persistDocuments(iid, convName, parts) {
     try {
       const existing = await docMeta(id);
       if (existing && existing.artifact_url === url) continue;
-      const safe = safeArtifactUrl(url);
+      const safe = await safeArtifactUrl(url);
       if (!safe) continue;
       const r = await fetch(safe, { redirect: "follow" });
       if (!r.ok) { recordError("documents", "fetch " + name + " -> HTTP " + r.status, r.status); continue; }
@@ -1115,23 +1117,71 @@ app.post("/api/send/stream", async (req, res) => {
 // (format preserved), and (b) preview it inline without cross-origin or
 // X-Frame-Options friction. ?dl=1 -> attachment; ?as=html -> Word doc rendered
 // to HTML via mammoth for a faithful in-app preview.
-function safeArtifactUrl(raw) {
+// True if an IP literal is loopback, link-local, private, or otherwise not a
+// globally-routable address we should let the server fetch on a client's behalf.
+function isPrivateIp(ip) {
+  if (!ip) return true;
+  let s = String(ip).toLowerCase().replace(/^\[|\]$/g, "");
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d) -> evaluate the embedded IPv4.
+  const mapped = s.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (mapped) s = mapped[1];
+  if (net.isIPv4(s)) {
+    const [a, b] = s.split(".").map(Number);
+    return (
+      a === 0 ||                       // 0.0.0.0/8 "this network"
+      a === 10 ||                      // 10/8 private
+      a === 127 ||                     // 127/8 loopback
+      (a === 169 && b === 254) ||      // 169.254/16 link-local (cloud metadata)
+      (a === 172 && b >= 16 && b <= 31) || // 172.16/12 private
+      (a === 192 && b === 168) ||      // 192.168/16 private
+      (a === 100 && b >= 64 && b <= 127) || // 100.64/10 CGNAT
+      (a === 192 && b === 0) ||        // 192.0.0/24 + 192.0.2/24 reserved
+      (a === 198 && (b === 18 || b === 19)) || // 198.18/15 benchmarking
+      a >= 224                          // 224+ multicast / reserved
+    );
+  }
+  if (net.isIPv6(s)) {
+    return (
+      s === "::" || s === "::1" ||     // unspecified / loopback
+      s.startsWith("fe8") || s.startsWith("fe9") ||
+      s.startsWith("fea") || s.startsWith("feb") || // fe80::/10 link-local
+      s.startsWith("fc") || s.startsWith("fd") ||    // fc00::/7 unique-local
+      s.startsWith("ff")                             // ff00::/8 multicast
+    );
+  }
+  return true; // unknown literal form -> fail closed
+}
+
+// Validate an artifact URL before the server fetches it, to prevent SSRF. We
+// resolve the hostname via DNS and reject if ANY resolved address is private /
+// loopback / link-local (a hostname-string check alone is bypassable by a name
+// that resolves to 127.0.0.1 or 169.254.169.254). Returns the URL string when
+// safe, otherwise null. Fails closed on resolution errors.
+async function safeArtifactUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return null; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return null;
   // Opt-in bypass for self-hosting where artifacts are served from the same
   // private network/origin, and for the local test harness. Default OFF.
   if (process.env.PD_ALLOW_LOCAL_FETCH === "1") return u.toString();
-  const host = u.hostname.toLowerCase();
-  // Block obvious SSRF targets (loopback / link-local / RFC1918).
-  if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(host)) return null;
-  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost") return null;
+  let addresses;
+  if (net.isIP(host)) {
+    addresses = [host];
+  } else {
+    try {
+      const recs = await dns.lookup(host, { all: true });
+      addresses = recs.map((r) => r.address);
+    } catch { return null; }   // unresolvable -> reject
+    if (!addresses.length) return null;
+  }
+  if (addresses.some(isPrivateIp)) return null;
   return u.toString();
 }
 
 app.get("/api/file", async (req, res) => {
-  const target = safeArtifactUrl(String(req.query.url || ""));
+  const target = await safeArtifactUrl(String(req.query.url || ""));
   if (!target) return res.status(400).json({ error: "Bad or missing file url." });
   const wantHtml = req.query.as === "html";
   const wantDownload = req.query.dl === "1";
