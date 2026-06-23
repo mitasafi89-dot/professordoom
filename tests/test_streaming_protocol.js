@@ -139,6 +139,33 @@ async function waitStatus() { for (let i = 0; i < 50; i++) { try { const r = awa
   ok(b.done && b.done.complete === true, "completion token in streamed text -> complete=true");
   ok(b.done && /All phases delivered/.test(b.done.reply || ""), "streamed reply preserved alongside the token");
 
+  // ---- PART C: exported file frame (the REAL flat Gumloop shape) is delivered ----
+  // Mirrors the production HAR: sandbox_download -> a flat `file` frame with
+  // download_url/display_filename/artifact_id, and REST reconciliation returns NO
+  // messages. The deliverable must still reach the browser and done.parts.
+  console.log("\nPART C \u2014 exported file frame is delivered (flat shape, REST omits it)");
+  frameScript = [
+    { type: "interaction-ready", interaction_id: "int_file" },
+    { type: "step-start", id: "s1", modelId: "claude-opus-4-8" },
+    { type: "tool_invocation", toolName: "sandbox_download", toolCaption: "Export the DOCX to the chat", toolCallState: "completed" },
+    { type: "file", id: "file-1",
+      filename: "custom_agent_interactions/int_file/output/AID/VID/Essay.docx",
+      display_filename: "Essay.docx",
+      media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      download_url: "https://storage.googleapis.com/agenthub/uid/x/Essay.docx?X-Goog-Signature=abc",
+      artifact_id: "AID", version_id: "VID" },
+    { type: "text-start", id: "m" },
+    { type: "text-delta", id: "m", delta: "The .docx is ready and attached above." },
+    { type: "text-end", id: "m" },
+    { type: "finish", finishReason: "end_turn" },
+  ];
+  const c = await sendStream({ message: "output as docx file", turnstile_token: "na", hcaptcha_token: "h" });
+  ok(c.frameTypes.includes("file"), "file frame forwarded to the browser as SSE");
+  const fileParts = (c.done && Array.isArray(c.done.parts) ? c.done.parts : []).filter((p) => p && p.type === "file");
+  ok(fileParts.length === 1, "exported file merged into done.parts even though REST returned no messages (got " + fileParts.length + ")");
+  ok(fileParts[0] && fileParts[0].download_url && fileParts[0].display_filename === "Essay.docx",
+    "merged file part preserves the flat download_url + display_filename shape");
+
   console.log("\n" + (failures === 0 ? "ALL TESTS PASSED" : failures + " ASSERTION(S) FAILED"));
   try { srv.kill(); } catch {}
   try { require("fs").unlinkSync(path.join(__dirname, ".test-state-stream.json")); } catch {}

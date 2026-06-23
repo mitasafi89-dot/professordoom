@@ -39,11 +39,11 @@ function extract(name) {
 const ctx = {};
 vm.createContext(ctx);
 vm.runInContext(
-  [extract("liveStatusFor"), extract("fmtElapsed"), extract("looksParked")].join("\n\n") +
-    "\nthis.liveStatusFor = liveStatusFor; this.fmtElapsed = fmtElapsed; this.looksParked = looksParked;",
+  [extract("liveStatusFor"), extract("fmtElapsed"), extract("looksParked"), extract("fileFromPart")].join("\n\n") +
+    "\nthis.liveStatusFor = liveStatusFor; this.fmtElapsed = fmtElapsed; this.looksParked = looksParked; this.fileFromPart = fileFromPart;",
   ctx
 );
-const { liveStatusFor, fmtElapsed, looksParked } = ctx;
+const { liveStatusFor, fmtElapsed, looksParked, fileFromPart } = ctx;
 
 let pass = 0, fail = 0;
 function ok(cond, label) {
@@ -85,6 +85,21 @@ ok(looksParked("Here are your five unread emails, summarized above.") === false,
 ok(looksParked("The essay is complete and the file has been exported.") === false, "completion answer not parked");
 ok(looksParked("") === false, "empty reply not parked");
 ok(looksParked("Sugarcane is a major cash crop in western Kenya.") === false, "plain statement not parked");
+
+console.log("\nPART D \u2014 fileFromPart normalizes the Gumloop file part");
+// Real (production) FLAT shape: download_url + display_filename, no nested .file.
+const flat = fileFromPart({ type: "file", filename: "a/b/Essay.docx", display_filename: "Essay.docx",
+  media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  download_url: "https://storage.googleapis.com/x/Essay.docx?sig=1", artifact_id: "A", version_id: "V" });
+ok(flat && flat.url === "https://storage.googleapis.com/x/Essay.docx?sig=1", "flat: uses download_url");
+ok(flat && flat.name === "Essay.docx", "flat: uses display_filename (basename)");
+ok(flat && /wordprocessingml/.test(flat.mt), "flat: carries media_type");
+// Legacy nested shape with artifact_url must still work.
+const nested = fileFromPart({ type: "file", file: { filename: "out/Report.pdf", artifact_url: "https://gumloop.com/files/r.pdf", media_type: "application/pdf" } });
+ok(nested && nested.url === "https://gumloop.com/files/r.pdf", "nested: falls back to artifact_url");
+ok(nested && nested.name === "Report.pdf", "nested: basename from filename");
+ok(fileFromPart({ type: "file", display_filename: "x.docx" }) === null, "no url -> null (nothing to download)");
+ok(fileFromPart({ type: "text", text: "hi" }) === null, "non-file part -> null");
 
 console.log(`\n${fail === 0 ? "ALL TESTS PASSED" : fail + " ASSERTION(S) FAILED"}`);
 process.exit(fail === 0 ? 0 : 1);

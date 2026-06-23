@@ -587,10 +587,9 @@ function renderAssistantParts(parts) {
       }
     } else if (p.type === 'text' && p.text) {
       answer += render(p.text);
-    } else if (p.type === 'file' && p.file) {
-      const f = p.file;
-      const nm = String(f.filename || 'file').split('/').pop();
-      files += fileCardHTML(nm, f.artifact_url || '', f.media_type || '');
+    } else if (p.type === 'file') {
+      const nf = fileFromPart(p);
+      if (nf) files += fileCardHTML(nf.name, nf.url, nf.mt);
     }
   }
   let html = '';
@@ -743,6 +742,7 @@ function renderLive(bubble, live) {
   if (thinking) html += thinkingBlockHTML(thinking, false, stillThinking);
   if (toolSteps.length) html += stepsBlockHTML(toolSteps, true);
   if (live.answer) html += '<div class="answer">' + render(live.answer) + '</div>';
+  if (live.files && live.files.length) html += '<div class="files">' + live.files.map((nf) => fileCardHTML(nf.name, nf.url, nf.mt)).join('') + '</div>';
   if (live.status) {
     const since = live.startedAt ? fmtElapsed(Date.now() - live.startedAt) : '';
     html += '<div class="live-status"><span class="live-dot"></span>' +
@@ -780,6 +780,18 @@ function applyFrame(f, live) {
     return;
   }
   if (type === 'step-start') { if (!live.answer) live.status = 'Working…'; return; }
+  // A `file` frame is the agent's exported deliverable. Gumloop streams it LIVE
+  // (it is NOT guaranteed to come back in the REST reconciliation), so capture it
+  // here and render a download card the moment the export lands.
+  if (type === 'file') {
+    const nf = fileFromPart(f);
+    if (nf) {
+      live.files = live.files || [];
+      if (!live.files.some((x) => x.url === nf.url || (nf.name && x.name === nf.name))) live.files.push(nf);
+      live.status = 'Saving the file…';
+    }
+    return;
+  }
   // Plain answer text / deltas (only reached when not a reasoning or tool frame).
   if (typeof f.text === 'string' && f.text) { live.answer += f.text; live.status = 'Writing the response…'; return; }
   if (typeof f.delta === 'string' && f.delta) { live.answer += f.delta; live.status = 'Writing the response…'; return; }
@@ -865,7 +877,7 @@ async function runTurn(text, opts) {
   if (!opts.auto) { inputEl.value = ''; autoGrow(); }
 
   const bubble = addRichMessage('', SELECTED_MODEL.label);
-  const live = { steps: [], answer: '', status: 'Connecting\u2026', startedAt: Date.now() };
+  const live = { steps: [], answer: '', status: 'Connecting\u2026', startedAt: Date.now(), files: [] };
   renderLive(bubble, live);
   threadEl.scrollTop = threadEl.scrollHeight;
   // Tick a client-side elapsed counter every second so the user can SEE the turn
@@ -1281,6 +1293,19 @@ function stepsBlockHTML(steps, open) {
 }
 
 // ---------- files: download (format-preserving) + Claude-style preview ----------
+// Normalize a Gumloop file part to { name, url, mt }. The real (production) shape
+// is FLAT: { type:'file', filename, display_filename, media_type, download_url,
+// artifact_id, version_id }. A legacy/captured shape nested it under p.file with
+// artifact_url. Accept both so a deliverable always renders a download card.
+function fileFromPart(p) {
+  if (!p || p.type !== 'file') return null;
+  const f = (p.file && typeof p.file === 'object') ? p.file : p;
+  const url = f.download_url || f.artifact_url || f.url || '';
+  const name = String(f.display_filename || f.filename || 'file').split('/').pop();
+  if (!url) return null;
+  return { name, url, mt: f.media_type || f.mediaType || '' };
+}
+
 function fileExt(n) { const m = /\.([a-z0-9]+)$/i.exec(n || ''); return m ? m[1].toLowerCase() : ''; }
 
 // Which inline preview renderer (if any) fits this file.

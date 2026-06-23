@@ -483,32 +483,50 @@ async function docFetch(id) {
   }
   return memDocs.get(id) || null;
 }
+// Normalize a Gumloop file part to { name, url, media_type, artifact_id, version_id }.
+// The real (production) shape is FLAT: { type:"file", filename, display_filename,
+// media_type, download_url, artifact_id, version_id }. A legacy/captured shape
+// nested it under p.file with artifact_url. Accept BOTH so deliverables always
+// flow through (this mismatch is why exported files never rendered).
+function normalizeFilePart(p) {
+  if (!p || p.type !== "file") return null;
+  const f = p.file && typeof p.file === "object" ? p.file : p;
+  const url = f.download_url || f.artifact_url || f.url || "";
+  const name = String(f.display_filename || f.filename || "file").split("/").pop();
+  if (!url) return null;
+  return { name, url, media_type: f.media_type || f.mediaType || null,
+    artifact_id: f.artifact_id || null, version_id: f.version_id || null };
+}
+
 // Capture every file artifact in a finished turn's parts[]. Best-effort and
-// idempotent: a filename re-exported with the SAME url is skipped; a new version
-// (new url) replaces the stored bytes and bumps the version.
+// idempotent: a file already stored with bytes (or whose stable storage path is
+// unchanged) is skipped; a new version re-fetches and bumps the stored copy.
 async function persistDocuments(iid, convName, parts) {
   if (!Array.isArray(parts)) return;
   for (const p of parts) {
-    if (!p || p.type !== "file" || !p.file || !p.file.artifact_url) continue;
-    const f = p.file;
-    const name = String(f.filename || "file").split("/").pop();
-    const url = f.artifact_url;
+    const nf = normalizeFilePart(p);
+    if (!nf) continue;
+    const name = nf.name;
+    const url = nf.url;
     const id = docId(iid, name);
     try {
       const existing = await docMeta(id);
+      // persistDocuments runs once per turn with that turn's streamed file, so the
+      // same URL re-appearing means the same artifact -> skip; a re-export carries a
+      // new URL -> re-fetch and bump the version.
       if (existing && existing.artifact_url === url) continue;
       // allowlist + SSRF + redirect-safe + size-capped. Cap at the inline limit:
       // anything larger is stored as metadata + the live URL, never buffered whole.
       const r = await fetchArtifact(url, { maxBytes: MAX_DOC_BYTES });
       if (r.error === "too-large") {
         await docUpsert({ id, interaction_id: iid, conversation_name: convName, filename: name,
-          media_type: f.media_type || null, artifact_url: url, content: null });
+          media_type: nf.media_type || null, artifact_url: url, content: null });
         continue;
       }
       if (r.error || !r.ok) { recordError("documents", "fetch " + name + " -> " + (r.error || ("HTTP " + r.status)), r.status); continue; }
-      const ctype = r.ctype || f.media_type || "application/octet-stream";
+      const ctype = r.ctype || nf.media_type || "application/octet-stream";
       await docUpsert({ id, interaction_id: iid, conversation_name: convName, filename: name,
-        media_type: f.media_type || ctype, artifact_url: url, content: r.buf });
+        media_type: nf.media_type || ctype, artifact_url: url, content: r.buf });
     } catch (e) { recordError("documents", "persist " + name + ": " + e.message); }
   }
 }
@@ -1027,6 +1045,7 @@ app.post("/api/send/stream", async (req, res) => {
   };
 
   let streamText = "";
+  const streamedFiles = [];   // `file` frames seen live (REST may omit them)
   let wsError = null;
   let closed = false;
   let closeInfo = null;     // {code, reason} from the upstream WS close
@@ -1059,6 +1078,21 @@ app.post("/api/send/stream", async (req, res) => {
         }
       }
     } catch { /* keep streamText */ }
+    // Gumloop delivers the deliverable as a LIVE `file` frame; the REST
+    // reconciliation does not reliably echo it back as a part. Merge any streamed
+    // file frames into parts[] (de-duped by artifact+version) so the download card
+    // always renders and the document is always persisted.
+    if (streamedFiles.length) {
+      const merged = Array.isArray(parts) ? parts.slice() : [];
+      const keyOf = (p) => { const n = normalizeFilePart(p); return n && n.artifact_id && n.version_id ? n.artifact_id + ":" + n.version_id : null; };
+      const seen = new Set(merged.map(keyOf).filter(Boolean));
+      for (const ff of streamedFiles) {
+        const k = keyOf(ff);
+        if (k && seen.has(k)) continue;
+        merged.push(ff); if (k) seen.add(k);
+      }
+      parts = merged;
+    }
     logMessage(iid, "user", message, null);
     logMessage(iid, "assistant", reply, null);
     const pending = Array.isArray(parts) && parts.some((p) => p && p.type === "tool_invocation" && p.toolName === "ask_human_input");
@@ -1108,6 +1142,7 @@ app.post("/api/send/stream", async (req, res) => {
       }
       if (typeof o.text === "string") streamText += o.text;
       else if (typeof o.delta === "string") streamText += o.delta;
+      if (o.type === "file") streamedFiles.push(o);
       sse("frame", o);
       // Terminate only on the END OF THE WHOLE TURN, never on per-step frames.
       if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) return finishUp();
