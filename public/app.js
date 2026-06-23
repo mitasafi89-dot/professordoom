@@ -58,6 +58,7 @@ const AUTO_CAP = (function () { const n = parseInt(localStorage.getItem('pd_auto
 const STALL_CAP = (function () { const n = parseInt(localStorage.getItem('pd_stallcap') || '', 10); return Number.isFinite(n) && n > 0 ? n : 3; })();
 let autoRounds = 0;            // consecutive auto-continues in the current run
 let emptyStreak = 0;           // consecutive turns that produced no new output
+let prevReplyNorm = '';        // normalized reply of the previous turn (repeat detection)
 let autoStopRequested = false; // set by Stop / toggle-off to break the loop
 let autoLoopActive = false;    // a send()+auto-continue run is in progress
 
@@ -875,6 +876,7 @@ async function runTurn(text, opts) {
             // file)? Reasoning-only / blank turns count as "empty" so the
             // auto-continue loop can break a re-announcement stall.
             const rep = (obj.reply || '').trim();
+            outcome.reply = rep;
             const repReal = rep && rep !== '(no text returned)' && rep !== '(no content)';
             const partsReal = Array.isArray(obj.parts) && obj.parts.some(
               (p) => (p.type === 'text' && p.text) || p.type === 'tool_invocation' || p.type === 'file');
@@ -927,7 +929,7 @@ async function send() {
   if (!first && !ATTACHMENTS.length) return;
   const firstMsg = first || 'Please review the attached file(s).';
 
-  autoRounds = 0; emptyStreak = 0; autoStopRequested = false; autoLoopActive = true;
+  autoRounds = 0; emptyStreak = 0; prevReplyNorm = ''; autoStopRequested = false; autoLoopActive = true;
   try {
     let outcome = await runTurn(firstMsg, { auto: false });
     if (!outcome.sent) return;
@@ -941,7 +943,14 @@ async function send() {
       // Stall guard: if the agent keeps ending turns without producing anything
       // new (the "re-announcing the same step" failure), stop instead of
       // burning the rest of the cap on empty turns.
-      emptyStreak = outcome.empty ? emptyStreak + 1 : 0;
+      // A turn that produced nothing new -- OR a near-verbatim repeat of the
+      // previous turn's reply (the agent re-declaring it is "done" without ever
+      // emitting the completion token) -- counts toward the stall guard, so the
+      // loop stops instead of spamming "continue" at a finished agent.
+      const replyNorm = (outcome.reply || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const dupReply = replyNorm.length > 16 && replyNorm === prevReplyNorm;
+      prevReplyNorm = replyNorm;
+      emptyStreak = (outcome.empty || dupReply) ? emptyStreak + 1 : 0;
       if (emptyStreak >= STALL_CAP) {
         showAutoNote('Auto-continue stopped: ' + STALL_CAP + ' turns with no new output. Nudge the agent with a specific instruction.', true);
         return;
