@@ -757,15 +757,53 @@ function renderLive(bubble, live) {
 function applyFrame(f, live) {
   if (!f || typeof f !== 'object') return;
   const type = f.type || '';
-  // Branch by type FIRST. Reasoning frames also carry a `text` field, so the
-  // answer-text branch must come LAST to avoid leaking reasoning into the answer.
-  if (type === 'reasoning' || (f.reasoning && type !== 'tool_invocation' && !f.toolName)) {
-    const r = f.reasoning || f.text || '';
+
+  // ----- Reasoning (chain of thought) -> the collapsible Thinking block -----
+  // Production protocol streams reasoning-start / reasoning-delta(delta) /
+  // reasoning-end. The delta is in `delta` (NOT `reasoning`/`text`), so without
+  // this branch the chain of thought leaked into the visible answer. (Older/mock
+  // shape: { type:'reasoning', text|reasoning }.)
+  if (type === 'reasoning-start') { live.status = 'Thinking…'; return; }
+  if (type === 'reasoning-end') return;
+  if (type === 'reasoning-delta' || type === 'reasoning' ||
+      (f.reasoning && type !== 'tool_invocation' && !f.toolName)) {
+    const r = f.delta || f.reasoning || f.text || '';
     if (r) {
       const last = live.steps[live.steps.length - 1];
       if (last && last.kind === 'think') last.text += r; else live.steps.push({ kind: 'think', text: r });
       live.status = 'Thinking…';
     }
+    return;
+  }
+
+  // ----- Tool lifecycle -> step chips -----
+  // Production: tool-input-start (toolName) / tool-input-delta (the tool's input
+  // being typed, IGNORED so the code never leaks into the answer) / tool-call
+  // (full call + human caption) / tool-result (terminal state). Legacy/mock: one
+  // combined `tool_invocation` frame with toolCallState.
+  if (type === 'tool-input-start') {
+    const name = f.toolName || ''; const key = 'tool|' + (f.id || name);
+    if (!live.steps.some((s) => s.kind === 'tool' && s.key === key))
+      live.steps.push({ kind: 'tool', cap: name || 'tool', name, state: 'running', key });
+    live.status = liveStatusFor(name, '');
+    return;
+  }
+  if (type === 'tool-input-delta') return; // tool input stream is NOT answer text
+  if (type === 'tool-call') {
+    const name = f.toolName || ''; const cap = f.toolCaption || name || 'tool';
+    const key = 'tool|' + (f.toolCallId || f.id || name);
+    let ex = live.steps.find((s) => s.kind === 'tool' && s.key === key);
+    if (!ex) ex = live.steps.find((s) => s.kind === 'tool' && s.name === name && s.state === 'running');
+    if (ex) { ex.cap = cap; ex.name = name; ex.key = key; if (ex.state !== 'completed' && ex.state !== 'error') ex.state = 'running'; }
+    else live.steps.push({ kind: 'tool', cap, name, state: 'running', key });
+    live.status = liveStatusFor(name, cap);
+    return;
+  }
+  if (type === 'tool-result') {
+    const name = f.toolName || ''; const key = 'tool|' + (f.toolCallId || f.id || name);
+    let ex = live.steps.find((s) => s.kind === 'tool' && s.key === key);
+    if (!ex) ex = live.steps.find((s) => s.kind === 'tool' && s.name === name);
+    if (ex) ex.state = f.error ? 'error' : 'completed';
     return;
   }
   if (type === 'tool_invocation' || f.toolName || f.toolCaption) {
@@ -779,10 +817,8 @@ function applyFrame(f, live) {
     live.status = liveStatusFor(name, cap);
     return;
   }
-  if (type === 'step-start') { if (!live.answer) live.status = 'Working…'; return; }
-  // A `file` frame is the agent's exported deliverable. Gumloop streams it LIVE
-  // (it is NOT guaranteed to come back in the REST reconciliation), so capture it
-  // here and render a download card the moment the export lands.
+
+  // ----- File deliverable: rendered the moment the export lands (live) -----
   if (type === 'file') {
     const nf = fileFromPart(f);
     if (nf) {
@@ -792,11 +828,18 @@ function applyFrame(f, live) {
     }
     return;
   }
-  // Plain answer text / deltas (only reached when not a reasoning or tool frame).
-  if (typeof f.text === 'string' && f.text) { live.answer += f.text; live.status = 'Writing the response…'; return; }
-  if (typeof f.delta === 'string' && f.delta) { live.answer += f.delta; live.status = 'Writing the response…'; return; }
-}
 
+  if (type === 'step-start') { if (!live.answer) live.status = 'Working…'; return; }
+
+  // ----- Answer text -----
+  // Production: text-delta(delta). Mock/legacy: {type:'text', text} or a bare
+  // {text}/{delta} with no type. Every known non-answer delta frame is handled
+  // above and has returned, so a remaining delta here is genuine answer text.
+  if (type === 'text-delta') { if (typeof f.delta === 'string') { live.answer += f.delta; live.status = 'Writing the response…'; } return; }
+  if (type === 'text-start' || type === 'text-end') return;
+  if (typeof f.text === 'string' && f.text) { live.answer += f.text; live.status = 'Writing the response…'; return; }
+  if (!type && typeof f.delta === 'string' && f.delta) { live.answer += f.delta; live.status = 'Writing the response…'; return; }
+}
 function parseSSE(chunk) {
   const lines = chunk.split('\n');
   let event = 'message', data = '';

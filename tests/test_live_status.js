@@ -39,11 +39,11 @@ function extract(name) {
 const ctx = {};
 vm.createContext(ctx);
 vm.runInContext(
-  [extract("liveStatusFor"), extract("fmtElapsed"), extract("looksParked"), extract("fileFromPart")].join("\n\n") +
-    "\nthis.liveStatusFor = liveStatusFor; this.fmtElapsed = fmtElapsed; this.looksParked = looksParked; this.fileFromPart = fileFromPart;",
+  [extract("liveStatusFor"), extract("fmtElapsed"), extract("looksParked"), extract("fileFromPart"), extract("liveStatusFor"), extract("applyFrame")].join("\n\n") +
+    "\nthis.liveStatusFor = liveStatusFor; this.fmtElapsed = fmtElapsed; this.looksParked = looksParked; this.fileFromPart = fileFromPart; this.applyFrame = applyFrame;",
   ctx
 );
-const { liveStatusFor, fmtElapsed, looksParked, fileFromPart } = ctx;
+const { liveStatusFor, fmtElapsed, looksParked, fileFromPart, applyFrame } = ctx;
 
 let pass = 0, fail = 0;
 function ok(cond, label) {
@@ -100,6 +100,29 @@ ok(nested && nested.url === "https://gumloop.com/files/r.pdf", "nested: falls ba
 ok(nested && nested.name === "Report.pdf", "nested: basename from filename");
 ok(fileFromPart({ type: "file", display_filename: "x.docx" }) === null, "no url -> null (nothing to download)");
 ok(fileFromPart({ type: "text", text: "hi" }) === null, "non-file part -> null");
+
+console.log("\nPART E \u2014 applyFrame routes production frames (no reasoning/tool-input leak)");
+{
+  const live = { steps: [], answer: "", status: "", files: [] };
+  applyFrame({ type: "reasoning-start", id: "r1" }, live);
+  applyFrame({ type: "reasoning-delta", id: "r1", delta: "thinking it through" }, live);
+  applyFrame({ type: "reasoning-end", id: "r1" }, live);
+  applyFrame({ type: "tool-input-start", id: "t1", toolName: "sandbox_python" }, live);
+  applyFrame({ type: "tool-input-delta", id: "t1", delta: "import os  # raw code" }, live);
+  applyFrame({ type: "tool-call", toolCallId: "t1", toolName: "sandbox_python", toolCaption: "Run code" }, live);
+  applyFrame({ type: "tool-result", toolCallId: "t1", toolName: "sandbox_python" }, live);
+  applyFrame({ type: "text-delta", id: "m", delta: "Here is the answer." }, live);
+  ok(live.answer === "Here is the answer.", "answer holds ONLY text-delta (no reasoning/tool-input leak)");
+  ok(live.steps.some((s) => s.kind === "think" && /thinking it through/.test(s.text)), "reasoning-delta routed to the thinking block");
+  const tool = live.steps.find((s) => s.kind === "tool");
+  ok(tool && tool.cap === "Run code", "tool-call sets the human caption on the step");
+  ok(tool && tool.state === "completed", "tool-result marks the step completed");
+  // a tool-result error sets the error state
+  const live2 = { steps: [], answer: "", status: "", files: [] };
+  applyFrame({ type: "tool-call", toolCallId: "x", toolName: "web_search", toolCaption: "Search" }, live2);
+  applyFrame({ type: "tool-result", toolCallId: "x", toolName: "web_search", error: "boom" }, live2);
+  ok(live2.steps[0] && live2.steps[0].state === "error", "tool-result with error -> error state");
+}
 
 console.log(`\n${fail === 0 ? "ALL TESTS PASSED" : fail + " ASSERTION(S) FAILED"}`);
 process.exit(fail === 0 ? 0 : 1);

@@ -144,27 +144,45 @@ async function waitStatus() { for (let i = 0; i < 50; i++) { try { const r = awa
   // download_url/display_filename/artifact_id, and REST reconciliation returns NO
   // messages. The deliverable must still reach the browser and done.parts.
   console.log("\nPART C \u2014 exported file frame is delivered (flat shape, REST omits it)");
+  // Exactly the production sequence: sandbox_python -> finish(final:false) ->
+  // sandbox_download -> file -> finish(final:false) -> finish(final:true), with
+  // reasoning-delta + tool-input-delta mixed in. This drives the three fixes at
+  // once: (a) intermediate finish must NOT end the turn, (b) reasoning must not
+  // leak into the reply, (c) tool-input code must not leak into the reply.
   frameScript = [
     { type: "interaction-ready", interaction_id: "int_file" },
     { type: "step-start", id: "s1", modelId: "claude-opus-4-8" },
-    { type: "tool_invocation", toolName: "sandbox_download", toolCaption: "Export the DOCX to the chat", toolCallState: "completed" },
+    { type: "reasoning-start", id: "r1" },
+    { type: "reasoning-delta", id: "r1", delta: "I should generate and then export the docx." },
+    { type: "reasoning-end", id: "r1" },
+    { type: "tool-input-start", id: "t1", toolName: "sandbox_python" },
+    { type: "tool-input-delta", id: "t1", delta: "from docx import Document" },
+    { type: "tool-call", toolCallId: "t1", toolName: "sandbox_python", toolCaption: "Generate the DOCX", input: {} },
+    { type: "tool-result", toolCallId: "t1", toolName: "sandbox_python", output: { stdout: "saved" } },
+    { type: "finish", finishReason: "tool_use", final: false },   // must NOT end the turn
+    { type: "tool-input-start", id: "t2", toolName: "sandbox_download" },
+    { type: "tool-call", toolCallId: "t2", toolName: "sandbox_download", toolCaption: "Export the DOCX to the chat", input: {} },
     { type: "file", id: "file-1",
       filename: "custom_agent_interactions/int_file/output/AID/VID/Essay.docx",
       display_filename: "Essay.docx",
       media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       download_url: "https://storage.googleapis.com/agenthub/uid/x/Essay.docx?X-Goog-Signature=abc",
       artifact_id: "AID", version_id: "VID" },
+    { type: "tool-result", toolCallId: "t2", toolName: "sandbox_download", output: { success: true } },
+    { type: "finish", finishReason: "tool_use", final: false },   // still NOT terminal
     { type: "text-start", id: "m" },
     { type: "text-delta", id: "m", delta: "The .docx is ready and attached above." },
     { type: "text-end", id: "m" },
-    { type: "finish", finishReason: "end_turn" },
+    { type: "finish", finishReason: "end_turn", final: true },     // terminal
   ];
   const c = await sendStream({ message: "output as docx file", turnstile_token: "na", hcaptcha_token: "h" });
-  ok(c.frameTypes.includes("file"), "file frame forwarded to the browser as SSE");
+  ok(c.frameTypes.includes("file"), "file frame arrived (turn NOT cut off at the first intermediate finish)");
   const fileParts = (c.done && Array.isArray(c.done.parts) ? c.done.parts : []).filter((p) => p && p.type === "file");
   ok(fileParts.length === 1, "exported file merged into done.parts even though REST returned no messages (got " + fileParts.length + ")");
   ok(fileParts[0] && fileParts[0].download_url && fileParts[0].display_filename === "Essay.docx",
     "merged file part preserves the flat download_url + display_filename shape");
+  ok(c.done && c.done.reply === "The .docx is ready and attached above.",
+    "reply is the answer text ONLY (no reasoning / tool-input leak); got: " + (c.done && JSON.stringify(c.done.reply)));
 
   console.log("\n" + (failures === 0 ? "ALL TESTS PASSED" : failures + " ASSERTION(S) FAILED"));
   try { srv.kill(); } catch {}

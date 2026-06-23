@@ -1140,12 +1140,25 @@ app.post("/api/send/stream", async (req, res) => {
         wsError = o.errorMessage || o.error || (typeof o.message === "string" ? o.message : "") || "upstream error";
         return finishUp();
       }
-      if (typeof o.text === "string") streamText += o.text;
-      else if (typeof o.delta === "string") streamText += o.delta;
+      // Accumulate the fallback reply from ANSWER text only. reasoning-delta and
+      // tool-input-delta also carry a `delta`, so the old catch-all folded the
+      // chain of thought and raw tool-input code into the reply -- exclude them.
+      const _ty = o.type || "";
+      if (_ty === "text-delta" && typeof o.delta === "string") streamText += o.delta;
+      else if (_ty === "text" && typeof o.text === "string") streamText += o.text;
+      else if (!_ty && typeof o.text === "string") streamText += o.text;
+      else if (!_ty && typeof o.delta === "string") streamText += o.delta;
       if (o.type === "file") streamedFiles.push(o);
       sse("frame", o);
       // Terminate only on the END OF THE WHOLE TURN, never on per-step frames.
-      if (["finish", "interaction-finish", "complete", "end"].includes(o.type)) return finishUp();
+      // Gumloop streams intermediate `finish` frames (final:false) between steps
+      // and tool calls; only a terminal finish (final:true, or a finish with no
+      // `final` field) ends the WHOLE turn. Ending on an intermediate finish tore
+      // the connection down after the FIRST tool call -- before sandbox_download,
+      // the `file` frame, and the closing text ever arrived. THIS is why exported
+      // files never reached the app.
+      if (o.type === "finish") { if (o.final === false) return; return finishUp(); }
+      if (["interaction-finish", "complete", "end"].includes(o.type)) return finishUp();
     } else {
       sse("frame", { raw: s.slice(0, 2000) });
     }
