@@ -694,10 +694,12 @@ function renderLive(bubble, live) {
   let html = '';
   const thinking = live.steps.filter((s) => s.kind === 'think').map((s) => s.text).join('\n\n');
   const toolSteps = live.steps.filter((s) => s.kind === 'tool').map((s) => toolStepHTML(s.cap, s.name, s.state));
-  // While no answer text has arrived yet the model is still reasoning, so keep
-  // the thinking block open and pulsing (Claude-style live thought stream).
+  // Keep the live thinking COLLAPSED by default so the answer and deliverable
+  // stay the focus of the response window; the status ticker below conveys live
+  // progress ("Thinking...", "Running a tool...", "Writing the response..."), and
+  // the reasoning is one click away for anyone who wants it.
   const stillThinking = !live.answer;
-  if (thinking) html += thinkingBlockHTML(thinking, stillThinking, stillThinking);
+  if (thinking) html += thinkingBlockHTML(thinking, false, stillThinking);
   if (toolSteps.length) html += stepsBlockHTML(toolSteps, true);
   if (live.answer) html += '<div class="answer">' + render(live.answer) + '</div>';
   if (live.status) html += '<div class="live-status"><span class="live-dot"></span><span>' + escH(live.status) + '</span></div>';
