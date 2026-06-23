@@ -920,6 +920,19 @@ app.all(/^\/api\/gl\/(.*)/, async (req, res) => {
 // Autonomous-mode directive: appended (via the existing injection path) when the
 // browser has Auto-continue enabled. It teaches the agent the turn protocol so
 // the client can reliably detect completion vs. a genuine question for the user.
+// Deliverable-handoff directive. Injected on EVERY send (not only autonomous
+// mode), because the most common "the file output didn't work" failure is the
+// agent saving a file inside the sandbox and never exporting it, then telling the
+// user it is attached. A sandbox-only file is invisible to the user.
+const DELIVERY_DIRECTIVE =
+  '[DELIVERABLES] Any file the user must see or download (manuscript, .docx/.pdf, figures, tables, datasets, ' +
+  'cover letter, checklist) MUST be exported with the sandbox_download tool. A file that only exists inside the ' +
+  'sandbox (saved with doc.save(...), open(...), plt.savefig(...), and the like) has NOT been delivered and the ' +
+  'user cannot see or open it. The app shows every EXPORTED artifact to the user as a downloadable card ' +
+  'automatically, so refer to deliverables by filename and do NOT paste raw file URLs. NEVER tell the user a file ' +
+  'is attached, ready, or shown above unless you actually called sandbox_download for it in this conversation and ' +
+  'the export succeeded.';
+
 const AUTOCONTINUE_DIRECTIVE =
   '[AUTONOMOUS MODE] You are running without a human pressing "continue" between turns. ' +
   'Work straight through the ENTIRE task across as many turns as needed, always resuming exactly where you left off. ' +
@@ -931,13 +944,9 @@ const AUTOCONTINUE_DIRECTIVE =
   'creates or changes a file/artifact, or (ii) deliver new written output. Do NOT spend a turn merely restating ' +
   'what you are "about to" do \u2014 if you are about to write something, write it in THIS turn. Never repeat the ' +
   'same "next I will\u2026" sentence across turns; if the same step keeps recurring, you are stalling \u2014 just execute it. ' +
-  // Deliverable handoff: files that live only in the sandbox are invisible to
-  // the user. Anything they must read/download has to be exported as an artifact.
-  'Any file the user must see (manuscript, figures, tables, datasets, cover letter, checklist) MUST be exported as a ' +
-  'downloadable artifact via sandbox_download \u2014 a file that exists only inside the sandbox has NOT been delivered. ' +
-  'The app automatically shows every exported artifact to the user as a downloadable card, so refer to deliverables by ' +
-  'filename in your reply and do NOT paste raw file URLs (a raw gumloop.com link may not be openable by the user). ' +
-  'Before emitting the completion token, confirm every deliverable has been exported and is downloadable. ' +
+  // Deliverable handoff is enforced on EVERY send via DELIVERY_DIRECTIVE; here we
+  // only restate the completion-time check so the agent verifies before finishing.
+  'Before emitting the completion token, confirm every deliverable has actually been exported via sandbox_download and is downloadable. ' +
   'Stop only when ONE of these is true: (a) the whole task is genuinely complete AND all deliverables are exported \u2014 ' +
   'then end your FINAL message with the exact token \u27e6TASK_COMPLETE\u27e7 on its own line; or (b) you truly need a ' +
   'decision or information from the user before you can proceed \u2014 then ask via the ask_human_input tool and do ' +
@@ -999,6 +1008,8 @@ app.post("/api/send/stream", async (req, res) => {
     }
     if (blocks.length) outgoing += `\n\nThe user attached the following file(s):\n\n${blocks.join("\n\n")}`;
   }
+  // Always enforce deliverable handoff; autonomous mode only adds the turn protocol.
+  outgoing = DELIVERY_DIRECTIVE + "\n\n" + outgoing;
   if (autocontinue) outgoing = AUTOCONTINUE_DIRECTIVE + "\n\n" + outgoing;
 
   const frame = {

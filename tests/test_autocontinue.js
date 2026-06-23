@@ -125,6 +125,16 @@ async function waitStatus() { for (let i = 0; i < 50; i++) { try { const r = awa
   ok(tp.done && tp.done.pending === true, "ask_human_input turn marked pending");
   ok(tp.done && tp.done.complete === false, "pending turn not marked complete");
 
+  // Deliverable directive must be injected even with auto-continue OFF. This is
+  // the root cause of "the file output didn't work": the agent saved a docx in
+  // the sandbox, never exported it, then claimed it was attached -- because the
+  // export rule used to live only inside the autonomous-mode directive.
+  await sendStream({ message: "Write and save a docx for me.", turnstile_token: "na", hcaptcha_token: "h", autocontinue: false });
+  const offOut = received[received.length - 1] || "";
+  ok(/^\[DELIVERABLES\]/.test(offOut), "DELIVERABLES directive injected when auto-continue is OFF");
+  ok(/sandbox_download/.test(offOut), "delivery directive names sandbox_download as the export step");
+  ok(!/\[AUTONOMOUS MODE\]/.test(offOut), "autonomous directive NOT added when auto-continue is OFF");
+
   // PART B, browser loop
   console.log("\nPART B \u2014 browser: auto-continue loop (no manual 'continue')");
   received.length = 0;
