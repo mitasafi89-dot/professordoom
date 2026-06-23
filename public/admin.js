@@ -13,15 +13,39 @@ async function post(url, body) {
   return { ok: r.ok, data };
 }
 
-// ---------- tabs ----------
-document.querySelectorAll(".admin-tabs .tab").forEach((btn) => {
+// ---------- tabs (ChatGPT-style sidebar buttons) ----------
+const TAB_TITLES = { session: "Session credentials", skills: "Skills", advanced: "Advanced settings" };
+const mqMobileAdmin = window.matchMedia("(max-width: 860px)");
+function selectTab(name) {
+  document.querySelectorAll(".side-nav").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+  const panel = $("tab-" + name);
+  if (panel) panel.classList.add("active");
+  const title = $("adminTitle");
+  if (title) title.textContent = TAB_TITLES[name] || "Admin console";
+  const thread = document.querySelector(".admin-thread");
+  if (thread) thread.scrollTop = 0;
+}
+document.querySelectorAll(".side-nav").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".admin-tabs .tab").forEach((b) => b.classList.remove("active"));
-    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-    btn.classList.add("active");
-    $("tab-" + btn.dataset.tab).classList.add("active");
+    selectTab(btn.dataset.tab);
+    if (mqMobileAdmin.matches) document.body.classList.remove("sidebar-open");
   });
 });
+
+// ---------- collapsible sidebar / mobile drawer (mirrors the chat page) ----------
+(function () {
+  const toggleBtn = $("sidebarToggle");
+  const backdrop = $("sidebarBackdrop");
+  const closeDrawer = () => document.body.classList.remove("sidebar-open");
+  if (toggleBtn) toggleBtn.addEventListener("click", () => {
+    if (mqMobileAdmin.matches) document.body.classList.toggle("sidebar-open");
+    else document.body.classList.toggle("sidebar-collapsed");
+  });
+  if (backdrop) backdrop.addEventListener("click", closeDrawer);
+  mqMobileAdmin.addEventListener("change", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+})();
 
 // ---------- status chips ----------
 function setChip(id, text, level) {

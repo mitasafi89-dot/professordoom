@@ -308,17 +308,15 @@ function addRichMessage(html, modelTag) {
 // text -> answer, file -> download card, ask_human_input -> pending questions.
 function renderAssistantParts(parts) {
   parts = parts || [];
-  const steps = [];
-  let answer = '', files = '', ask = '';
+  const toolSteps = [];
+  let thinking = '', answer = '', files = '', ask = '';
   for (const p of parts) {
     if (p.type === 'reasoning' && p.reasoning) {
-      steps.push('<div class="step step-think"><span class="step-ico">💭</span><div class="step-txt">' + escH(p.reasoning) + '</div></div>');
+      thinking += (thinking ? '\n\n' : '') + p.reasoning;
     } else if (p.type === 'tool_invocation') {
       const cap = p.toolCaption || p.toolName || 'tool';
       const st = (p.toolCallState || '').toLowerCase();
-      const badge = st ? '<span class="tool-state ' + escH(st) + '">' + escH(st) + '</span>' : '';
-      const nm = p.toolName ? '<span class="tool-name">' + escH(p.toolName) + '</span>' : '';
-      steps.push('<div class="step step-tool"><span class="step-ico">🔧</span><div class="step-txt"><span class="tool-cap">' + escH(cap) + '</span>' + nm + badge + '</div></div>');
+      toolSteps.push(toolStepHTML(cap, p.toolName || '', st));
       if (p.toolName === 'ask_human_input') {
         try {
           const qs = (p.result && p.result.args && p.result.args.questions) || [];
@@ -334,17 +332,12 @@ function renderAssistantParts(parts) {
     } else if (p.type === 'file' && p.file) {
       const f = p.file;
       const nm = String(f.filename || 'file').split('/').pop();
-      const url = f.artifact_url || '';
-      files += '<a class="file-card"' + (url ? ' href="' + escH(url) + '" target="_blank" rel="noopener"' : '') + '>' +
-        '<span class="file-ico">📄</span><span class="file-meta"><span class="file-name">' + escH(nm) + '</span>' +
-        '<span class="file-type">' + escH(f.media_type || '') + '</span></span><span class="file-dl">Download</span></a>';
+      files += fileCardHTML(nm, f.artifact_url || '', f.media_type || '');
     }
   }
   let html = '';
-  if (steps.length) {
-    html += '<details class="agent-steps"><summary><span class="steps-label">Thinking &amp; steps</span>' +
-      '<span class="steps-count">' + steps.length + '</span></summary><div class="steps-body">' + steps.join('') + '</div></details>';
-  }
+  if (thinking) html += thinkingBlockHTML(thinking, false, false);
+  if (toolSteps.length) html += stepsBlockHTML(toolSteps, false);
   if (answer) html += '<div class="answer">' + answer + '</div>';
   if (files) html += '<div class="files">' + files + '</div>';
   if (ask) html += ask;
@@ -433,16 +426,13 @@ function clearAutoNote() {
 // state, with a status line that reflects what the agent is doing right now.
 function renderLive(bubble, live) {
   let html = '';
-  if (live.steps.length) {
-    const stepHtml = live.steps.map((s) => s.kind === 'think'
-      ? '<div class="step step-think"><span class="step-ico">💭</span><div class="step-txt">' + escH(s.text) + '</div></div>'
-      : '<div class="step step-tool"><span class="step-ico">🔧</span><div class="step-txt"><span class="tool-cap">' + escH(s.cap) + '</span>' +
-        (s.name ? '<span class="tool-name">' + escH(s.name) + '</span>' : '') +
-        (s.state ? '<span class="tool-state ' + escH(s.state) + '">' + escH(s.state) + '</span>' : '') + '</div></div>'
-    ).join('');
-    html += '<details class="agent-steps" open><summary><span class="steps-label">Thinking &amp; steps</span>' +
-      '<span class="steps-count">' + live.steps.length + '</span></summary><div class="steps-body">' + stepHtml + '</div></details>';
-  }
+  const thinking = live.steps.filter((s) => s.kind === 'think').map((s) => s.text).join('\n\n');
+  const toolSteps = live.steps.filter((s) => s.kind === 'tool').map((s) => toolStepHTML(s.cap, s.name, s.state));
+  // While no answer text has arrived yet the model is still reasoning, so keep
+  // the thinking block open and pulsing (Claude-style live thought stream).
+  const stillThinking = !live.answer;
+  if (thinking) html += thinkingBlockHTML(thinking, stillThinking, stillThinking);
+  if (toolSteps.length) html += stepsBlockHTML(toolSteps, true);
   if (live.answer) html += '<div class="answer">' + render(live.answer) + '</div>';
   if (live.status) html += '<div class="live-status"><span class="live-dot"></span><span>' + escH(live.status) + '</span></div>';
   bubble.innerHTML = html || '<span class="typing"><span></span><span></span><span></span></span>';
@@ -896,4 +886,160 @@ function renderAttachments() {
     const idx = parseInt(btn.getAttribute('data-idx'), 10);
     if (!isNaN(idx)) { ATTACHMENTS.splice(idx, 1); renderAttachments(); }
   });
+})();
+
+/* ============================================================
+   Claude-style thinking, tool steps, file cards, and the
+   slide-in document preview panel.  (Function declarations are
+   hoisted, so render() above can call these freely.)
+   ============================================================ */
+const ICON_THINK =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A4.5 4.5 0 0 0 5 6.5c0 .8.2 1.5.6 2.1A4 4 0 0 0 4 12a4 4 0 0 0 2 3.5A3.5 3.5 0 0 0 9.5 21a3 3 0 0 0 2.5-1.3V3.3A3 3 0 0 0 9.5 2Z"/><path d="M14.5 2A4.5 4.5 0 0 1 19 6.5c0 .8-.2 1.5-.6 2.1A4 4 0 0 1 20 12a4 4 0 0 1-2 3.5A3.5 3.5 0 0 1 14.5 21a3 3 0 0 1-2.5-1.3V3.3A3 3 0 0 1 14.5 2Z"/></svg>';
+
+// One reasoning block, Claude-style: a quiet bordered card with its own header,
+// muted serif body, and (while live) a soft pulsing shimmer so the user can tell
+// the model is still thinking versus writing the answer.
+function thinkingBlockHTML(text, open, live) {
+  const cls = 'think-block' + (open ? ' open' : '') + (live ? ' is-live' : '');
+  return '<details class="' + cls + '"' + (open ? ' open' : '') + '>' +
+    '<summary><span class="think-ico">' + ICON_THINK + '</span>' +
+    '<span class="think-label">' + (live ? 'Thinking' : 'Thought process') + '</span>' +
+    '<span class="think-dot" aria-hidden="true"></span>' +
+    '<span class="think-chev" aria-hidden="true"></span></summary>' +
+    '<div class="think-body">' + render(text) + '</div></details>';
+}
+
+function toolStepHTML(cap, name, state) {
+  const st = (state || '').toLowerCase();
+  const badge = st ? '<span class="tool-state ' + escH(st) + '">' + escH(st) + '</span>' : '';
+  const nm = name ? '<span class="tool-name">' + escH(name) + '</span>' : '';
+  return '<div class="step step-tool"><span class="step-ico">🔧</span>' +
+    '<div class="step-txt"><span class="tool-cap">' + escH(cap) + '</span>' + nm + badge + '</div></div>';
+}
+
+function stepsBlockHTML(steps, open) {
+  return '<details class="agent-steps"' + (open ? ' open' : '') + '>' +
+    '<summary><span class="steps-label">Steps</span>' +
+    '<span class="steps-count">' + steps.length + '</span></summary>' +
+    '<div class="steps-body">' + steps.join('') + '</div></details>';
+}
+
+// ---------- files: download (format-preserving) + Claude-style preview ----------
+function fileExt(n) { const m = /\.([a-z0-9]+)$/i.exec(n || ''); return m ? m[1].toLowerCase() : ''; }
+
+// Which inline preview renderer (if any) fits this file.
+function previewKind(name, mt) {
+  const e = fileExt(name);
+  if (/pdf/i.test(mt) || e === 'pdf') return 'pdf';
+  if (/(wordprocessingml|msword)/i.test(mt) || e === 'doc' || e === 'docx') return 'doc';
+  if (/^image\//i.test(mt) || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'].includes(e)) return 'image';
+  if (/^text\//i.test(mt) || /json|markdown|xml|csv/i.test(mt) ||
+      ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'tex', 'xml', 'yml', 'yaml'].includes(e)) return 'text';
+  return '';
+}
+
+function fileIcon(kind) {
+  if (kind === 'pdf') return '📕';
+  if (kind === 'doc') return '📘';
+  if (kind === 'image') return '🖼️';
+  if (kind === 'text') return '📄';
+  return '📎';
+}
+
+// Same-origin proxy URL so the browser can download with the right name/type
+// and preview without cross-origin / X-Frame friction.
+function proxyURL(url, name, extra) {
+  let q = '/api/file?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(name || 'document');
+  if (extra) q += extra;
+  return q;
+}
+
+function fileCardHTML(name, url, mt) {
+  const kind = previewKind(name, mt);
+  const typeLabel = mt || (fileExt(name) ? fileExt(name).toUpperCase() : 'FILE');
+  const preBtn = (url && kind)
+    ? '<button type="button" class="file-btn file-preview" data-url="' + escH(url) + '" data-name="' + escH(name) +
+      '" data-mt="' + escH(mt) + '" data-kind="' + kind + '">Preview</button>'
+    : '';
+  const dlBtn = url
+    ? '<a class="file-btn file-dl" href="' + escH(proxyURL(url, name, '&dl=1')) + '">Download</a>'
+    : '';
+  return '<div class="file-card">' +
+    '<span class="file-ico">' + fileIcon(kind) + '</span>' +
+    '<span class="file-meta"><span class="file-name">' + escH(name) + '</span>' +
+    '<span class="file-type">' + escH(typeLabel) + '</span></span>' +
+    '<span class="file-actions">' + preBtn + dlBtn + '</span></div>';
+}
+
+function previewFallback(name, url) {
+  return '<div class="preview-empty"><div class="preview-empty-ico">📎</div>' +
+    '<p>This file type can&rsquo;t be shown inline.</p>' +
+    (url ? '<a class="file-btn file-dl" href="' + escH(proxyURL(url, name, '&dl=1')) + '">Download ' + escH(name) + '</a>' : '') +
+    '</div>';
+}
+
+(function () {
+  const panel = document.getElementById('previewPanel');
+  const backdrop = document.getElementById('previewBackdrop');
+  const body = document.getElementById('previewBody');
+  const nameEl = document.getElementById('previewName');
+  const typeEl = document.getElementById('previewType');
+  const dlEl = document.getElementById('previewDownload');
+  const closeEl = document.getElementById('previewClose');
+  if (!panel || !body) return;
+
+  function close() {
+    document.body.classList.remove('preview-open');
+    panel.setAttribute('aria-hidden', 'true');
+    body.innerHTML = '';
+  }
+
+  function open(url, name, mt, kind) {
+    if (nameEl) nameEl.textContent = name;
+    if (typeEl) typeEl.textContent = mt || (fileExt(name) ? fileExt(name).toUpperCase() : '');
+    if (dlEl) dlEl.href = proxyURL(url, name, '&dl=1');
+    document.body.classList.add('preview-open');
+    panel.setAttribute('aria-hidden', 'false');
+    body.innerHTML = '<div class="preview-loading"><span class="typing"><span></span><span></span><span></span></span> Loading preview&hellip;</div>';
+    const src = proxyURL(url, name);
+
+    if (kind === 'pdf') {
+      body.innerHTML = '<iframe class="preview-frame" src="' + escH(src) + '" title="' + escH(name) + '"></iframe>';
+    } else if (kind === 'image') {
+      const img = new Image();
+      img.className = 'preview-img';
+      img.alt = name;
+      img.onload = () => { body.innerHTML = ''; body.appendChild(wrapImg(img)); };
+      img.onerror = () => { body.innerHTML = previewFallback(name, url); };
+      img.src = src;
+    } else if (kind === 'doc') {
+      fetch(src + '&as=html').then((r) => r.ok ? r.text() : Promise.reject()).then((html) => {
+        body.innerHTML = '<div class="preview-doc">' + (html || '<p><em>Empty document.</em></p>') + '</div>';
+      }).catch(() => { body.innerHTML = previewFallback(name, url); });
+    } else if (kind === 'text') {
+      fetch(src).then((r) => r.ok ? r.text() : Promise.reject()).then((txt) => {
+        const e = fileExt(name);
+        if (e === 'md' || e === 'markdown' || /markdown/i.test(mt)) {
+          body.innerHTML = '<div class="preview-doc">' + render(txt) + '</div>';
+        } else {
+          body.innerHTML = '<pre class="preview-pre">' + escH(txt) + '</pre>';
+        }
+      }).catch(() => { body.innerHTML = previewFallback(name, url); });
+    } else {
+      body.innerHTML = previewFallback(name, url);
+    }
+  }
+
+  function wrapImg(img) { const d = document.createElement('div'); d.className = 'preview-img-wrap'; d.appendChild(img); return d; }
+
+  // Delegated: any Preview button anywhere in the thread opens the panel.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.file-preview');
+    if (!btn) return;
+    e.preventDefault();
+    open(btn.getAttribute('data-url'), btn.getAttribute('data-name'), btn.getAttribute('data-mt'), btn.getAttribute('data-kind'));
+  });
+  if (closeEl) closeEl.addEventListener('click', close);
+  if (backdrop) backdrop.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('preview-open')) close(); });
 })();

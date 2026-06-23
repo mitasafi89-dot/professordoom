@@ -921,6 +921,60 @@ app.post("/api/send/stream", async (req, res) => {
   req.on("close", () => { if (!closed) { closed = true; clearInterval(heartbeat); clearTimeout(timer); try { ws.close(); } catch {} } });
 });
 
+// ===================== File proxy (download + preview) =====================
+// Streams a Gumloop artifact back through THIS origin so the browser can
+// (a) force a real download with the correct filename + content-type
+// (format preserved), and (b) preview it inline without cross-origin or
+// X-Frame-Options friction. ?dl=1 -> attachment; ?as=html -> Word doc rendered
+// to HTML via mammoth for a faithful in-app preview.
+function safeArtifactUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  const host = u.hostname.toLowerCase();
+  // Block obvious SSRF targets (loopback / link-local / RFC1918).
+  if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(host)) return null;
+  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
+  return u.toString();
+}
+
+app.get("/api/file", async (req, res) => {
+  const target = safeArtifactUrl(String(req.query.url || ""));
+  if (!target) return res.status(400).json({ error: "Bad or missing file url." });
+  const wantHtml = req.query.as === "html";
+  const wantDownload = req.query.dl === "1";
+  const name = (String(req.query.name || "document").split("/").pop() || "document").replace(/[\r\n"\\]/g, "");
+  try {
+    const upstream = await fetch(target, { redirect: "follow" });
+    if (!upstream.ok) return res.status(upstream.status).json({ error: "Upstream returned " + upstream.status });
+    const ctype = upstream.headers.get("content-type") || "application/octet-stream";
+    const buf = Buffer.from(await upstream.arrayBuffer());
+
+    // Render Word documents to HTML for a faithful, formatted inline preview.
+    if (wantHtml && (/wordprocessingml|officedocument\.word|msword/i.test(ctype) || /\.docx?$/i.test(name))) {
+      try {
+        const mammoth = require("mammoth");
+        const { value: html } = await mammoth.convertToHtml({ buffer: buf });
+        res.set("content-type", "text/html; charset=utf-8");
+        res.set("cache-control", "private, max-age=300");
+        return res.send(html || "<p><em>Empty document.</em></p>");
+      } catch (e) {
+        return res.status(415).json({ error: "Could not render document: " + e.message });
+      }
+    }
+
+    res.set("content-type", ctype);
+    res.set("cache-control", "private, max-age=300");
+    res.set("x-content-type-options", "nosniff");
+    // Inline so PDFs/text/images render in the preview panel; attachment forces a save.
+    res.set("content-disposition", (wantDownload ? "attachment" : "inline") + '; filename="' + name + '"');
+    return res.send(buf);
+  } catch (err) {
+    res.status(502).json({ error: "Fetch failed: " + err.message });
+  }
+});
+
 // Admin entry point.
 app.get("/admin", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "admin.html")));
 
