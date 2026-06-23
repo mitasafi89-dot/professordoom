@@ -91,6 +91,7 @@ async function waitStatus() { for (let i = 0; i < 50; i++) { try { const r = awa
       GUMLOOP_API_URL: `http://127.0.0.1:${MOCK_PORT}`, GUMLOOP_WS_URL: `ws://127.0.0.1:${MOCK_PORT}/ws/gummies`,
       FIREBASE_TOKEN_URL: `http://127.0.0.1:${MOCK_PORT}/v1/token`,
       PD_ALLOW_LOCAL_FETCH: "1", // allow fetching the 127.0.0.1 mock artifacts
+      PD_ARTIFACT_HOSTS: "127.0.0.1", // allowlist the loopback mock host (allowlist is always enforced)
       PD_STATE_FILE: path.join(__dirname, ".test-state-docs.json"), DATABASE_URL: "" },
     stdio: ["ignore", "pipe", "pipe"] });
   srv.stderr.on("data", () => {});

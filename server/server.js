@@ -497,15 +497,18 @@ async function persistDocuments(iid, convName, parts) {
     try {
       const existing = await docMeta(id);
       if (existing && existing.artifact_url === url) continue;
-      const safe = await safeArtifactUrl(url);
-      if (!safe) continue;
-      const r = await fetch(safe, { redirect: "follow" });
-      if (!r.ok) { recordError("documents", "fetch " + name + " -> HTTP " + r.status, r.status); continue; }
-      const ctype = r.headers.get("content-type") || f.media_type || "application/octet-stream";
-      const buf = Buffer.from(await r.arrayBuffer());
-      const content = buf.length <= MAX_DOC_BYTES ? buf : null;
+      // allowlist + SSRF + redirect-safe + size-capped. Cap at the inline limit:
+      // anything larger is stored as metadata + the live URL, never buffered whole.
+      const r = await fetchArtifact(url, { maxBytes: MAX_DOC_BYTES });
+      if (r.error === "too-large") {
+        await docUpsert({ id, interaction_id: iid, conversation_name: convName, filename: name,
+          media_type: f.media_type || null, artifact_url: url, content: null });
+        continue;
+      }
+      if (r.error || !r.ok) { recordError("documents", "fetch " + name + " -> " + (r.error || ("HTTP " + r.status)), r.status); continue; }
+      const ctype = r.ctype || f.media_type || "application/octet-stream";
       await docUpsert({ id, interaction_id: iid, conversation_name: convName, filename: name,
-        media_type: f.media_type || ctype, artifact_url: url, content });
+        media_type: f.media_type || ctype, artifact_url: url, content: r.buf });
     } catch (e) { recordError("documents", "persist " + name + ": " + e.message); }
   }
 }
@@ -1133,6 +1136,23 @@ async function serveDocumentBuffer(res, buf, name, ctype, { wantHtml, wantDownlo
   return res.send(buf);
 }
 
+// ---- Artifact fetching: host allowlist + redirect/size caps ----
+// /api/file must only proxy real Gumloop artifact hosts, never act as an open
+// egress proxy for arbitrary URLs. Hosts are suffix-matched (so subdomains and
+// the gumloop.com -> storage.googleapis.com signed-URL hop are covered).
+// Override for self-hosting via PD_ARTIFACT_HOSTS (comma-separated).
+const ARTIFACT_HOST_SUFFIXES = (process.env.PD_ARTIFACT_HOSTS || "gumloop.com,storage.googleapis.com")
+  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const MAX_FILE_BYTES = (() => {
+  const n = parseInt(process.env.PD_MAX_FILE_BYTES || "", 10);
+  return Number.isInteger(n) && n > 0 ? n : 50 * 1024 * 1024; // 50MB default
+})();
+const MAX_REDIRECT_HOPS = 5;
+function hostAllowed(host) {
+  host = String(host || "").toLowerCase();
+  return ARTIFACT_HOST_SUFFIXES.some((suf) => host === suf || host.endsWith("." + suf));
+}
+
 // True if an IP literal is loopback, link-local, private, or otherwise not a
 // globally-routable address we should let the server fetch on a client's behalf.
 function isPrivateIp(ip) {
@@ -1177,10 +1197,13 @@ async function safeArtifactUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return null; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-  // Opt-in bypass for self-hosting where artifacts are served from the same
-  // private network/origin, and for the local test harness. Default OFF.
-  if (process.env.PD_ALLOW_LOCAL_FETCH === "1") return u.toString();
   const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // The allowlist is ALWAYS enforced, so /api/file can never become an open
+  // egress proxy for arbitrary URLs -- even when SSRF checks are bypassed.
+  if (!hostAllowed(host)) return null;
+  // PD_ALLOW_LOCAL_FETCH skips ONLY the private-IP/DNS SSRF check, for local
+  // test mocks and self-hosted artifact hosts on a private network.
+  if (process.env.PD_ALLOW_LOCAL_FETCH === "1") return u.toString();
   if (host === "localhost") return null;
   let addresses;
   if (net.isIP(host)) {
@@ -1196,18 +1219,54 @@ async function safeArtifactUrl(raw) {
   return u.toString();
 }
 
+// Fetch a Gumloop artifact safely: validate the URL (allowlist + SSRF) on EVERY
+// hop -- redirect:"manual" with per-hop re-validation, so a 302 cannot bounce us
+// onto a private/loopback or off-allowlist target -- and cap the buffered size
+// to avoid OOM. The legit gumloop.com -> storage.googleapis.com signed-URL hop
+// is followed because both hosts are allowlisted. Returns { ok, status, ctype,
+// buf } on success or { error, status } on a blocked/oversize/redirect failure.
+async function fetchArtifact(rawUrl, { maxBytes = MAX_FILE_BYTES } = {}) {
+  let url = await safeArtifactUrl(rawUrl);
+  if (!url) return { error: "blocked", status: 400 };
+  let resp = null;
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    resp = await fetch(url, { redirect: "manual", headers: { "user-agent": UA } });
+    if (resp.status < 300 || resp.status >= 400) break; // not a redirect
+    const loc = resp.headers.get("location");
+    if (!loc) break;
+    try { await resp.body?.cancel?.(); } catch {}
+    if (hop === MAX_REDIRECT_HOPS) return { error: "too many redirects", status: 502 };
+    try { url = await safeArtifactUrl(new URL(loc, url).toString()); } catch { url = null; }
+    if (!url) return { error: "redirect to a disallowed host", status: 400 };
+  }
+  const ctype = resp.headers.get("content-type") || "application/octet-stream";
+  const declared = parseInt(resp.headers.get("content-length") || "", 10);
+  if (Number.isInteger(declared) && declared > maxBytes) return { error: "too-large", status: 413 };
+  const chunks = []; let total = 0;
+  if (resp.body) {
+    const reader = resp.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > maxBytes) { try { await reader.cancel(); } catch {} return { error: "too-large", status: 413 }; }
+      chunks.push(Buffer.from(value));
+    }
+  }
+  return { ok: resp.ok, status: resp.status, ctype, buf: Buffer.concat(chunks) };
+}
+
 app.get("/api/file", async (req, res) => {
-  const target = await safeArtifactUrl(String(req.query.url || ""));
-  if (!target) return res.status(400).json({ error: "Bad or missing file url." });
   const wantHtml = req.query.as === "html";
   const wantDownload = req.query.dl === "1";
   const name = (String(req.query.name || "document").split("/").pop() || "document").replace(/[\r\n"\\]/g, "");
   try {
-    const upstream = await fetch(target, { redirect: "follow" });
-    if (!upstream.ok) return res.status(upstream.status).json({ error: "Upstream returned " + upstream.status });
-    const ctype = upstream.headers.get("content-type") || "application/octet-stream";
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    return serveDocumentBuffer(res, buf, name, ctype, { wantHtml, wantDownload });
+    const r = await fetchArtifact(String(req.query.url || ""));
+    if (r.error === "blocked") return res.status(400).json({ error: "Bad or missing file url." });
+    if (r.error === "too-large") return res.status(413).json({ error: "File exceeds the maximum proxy size." });
+    if (r.error) return res.status(r.status).json({ error: r.error });
+    if (!r.ok) return res.status(r.status).json({ error: "Upstream returned " + r.status });
+    return serveDocumentBuffer(res, r.buf, name, r.ctype, { wantHtml, wantDownload });
   } catch (err) {
     res.status(502).json({ error: "Fetch failed: " + err.message });
   }

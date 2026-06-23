@@ -47,6 +47,28 @@ contains `apiKey` and `stsTokenManager.refreshToken` — this is what `/admin`'s
 | GET | `/user/{uid}/credit_restriction_details` | Authoritative "blocked" signal (`has_restriction`, `credit_restriction`). |
 | ALL | `/api/gl/*` (server proxy) -> `api.gumloop.com/*` | Generic authenticated passthrough for the browser. |
 
+### File serving (`/api/file`, `/api/documents/:id`)
+
+`/api/file?url=...` proxies an artifact through this origin (correct download
+filename/content-type, friction-free inline preview). It is hardened so it can
+never be an open egress proxy / SSRF vector:
+
+- **Host allowlist (always enforced):** only hosts matching `PD_ARTIFACT_HOSTS`
+  (default `gumloop.com,storage.googleapis.com`, suffix-matched) are fetched;
+  any other host -> `400` with no network call.
+- **Per-hop redirect validation:** redirects are followed manually and each hop
+  re-validated, so a `302` can't bounce onto a private/off-allowlist target. The
+  legit `gumloop.com -> storage.googleapis.com` signed-URL hop is allowed.
+- **SSRF / private-IP block:** host is DNS-resolved; rejected if any address is
+  loopback/link-local/private. `PD_ALLOW_LOCAL_FETCH=1` skips ONLY this check
+  (loopback mocks / self-host); the allowlist still applies.
+- **Size cap:** responses over `PD_MAX_FILE_BYTES` (default 50MB) -> `413`.
+
+`/api/documents/:id` serves bytes stored in `pd_documents`, falling back to a
+`302` to `/api/file` when too large to store inline. `persistDocuments` captures
+deliverables through the same hardened fetch (>25MB kept as metadata + live URL).
+Query params (both): `?dl=1` = download, `?as=html` = Word-to-HTML preview.
+
 ### Other observed endpoints (not currently used — integration surface)
 Account/agents: `GET /gummies/{id}`, `PATCH /gummies/{id}`, `POST /gummies`,
 `GET /gummies/{id}/chat` (history), `/chat-histogram`, `/chat/filter-options`,
