@@ -622,20 +622,7 @@ app.get("/api/documents/:id", async (req, res) => {
     }
     const buf = doc.content;
     const ctype = doc.media_type || "application/octet-stream";
-    if (wantHtml && (/wordprocessingml|officedocument\.word|msword/i.test(ctype) || /\.docx?$/i.test(name))) {
-      try {
-        const mammoth = require("mammoth");
-        const { value: html } = await mammoth.convertToHtml({ buffer: buf });
-        res.set("content-type", "text/html; charset=utf-8");
-        res.set("cache-control", "private, max-age=300");
-        return res.send(html || "<p><em>Empty document.</em></p>");
-      } catch (e) { return res.status(415).json({ error: "Could not render document: " + e.message }); }
-    }
-    res.set("content-type", ctype);
-    res.set("cache-control", "private, max-age=300");
-    res.set("x-content-type-options", "nosniff");
-    res.set("content-disposition", (wantDownload ? "attachment" : "inline") + '; filename="' + name + '"');
-    return res.send(buf);
+    return serveDocumentBuffer(res, buf, name, ctype, { wantHtml, wantDownload });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1117,6 +1104,28 @@ app.post("/api/send/stream", async (req, res) => {
 // (format preserved), and (b) preview it inline without cross-origin or
 // X-Frame-Options friction. ?dl=1 -> attachment; ?as=html -> Word doc rendered
 // to HTML via mammoth for a faithful in-app preview.
+// Send a document buffer to the client. When as=html is requested for a Word
+// doc, render it to HTML via mammoth for a faithful inline preview; otherwise
+// stream the bytes inline (preview) or as an attachment (dl=1). Shared by
+// /api/documents/:id (stored bytes) and /api/file (proxied live artifact).
+async function serveDocumentBuffer(res, buf, name, ctype, { wantHtml, wantDownload }) {
+  if (wantHtml && (/wordprocessingml|officedocument\.word|msword/i.test(ctype) || /\.docx?$/i.test(name))) {
+    try {
+      const mammoth = require("mammoth");
+      const { value: html } = await mammoth.convertToHtml({ buffer: buf });
+      res.set("content-type", "text/html; charset=utf-8");
+      res.set("cache-control", "private, max-age=300");
+      return res.send(html || "<p><em>Empty document.</em></p>");
+    } catch (e) { return res.status(415).json({ error: "Could not render document: " + e.message }); }
+  }
+  res.set("content-type", ctype);
+  res.set("cache-control", "private, max-age=300");
+  res.set("x-content-type-options", "nosniff");
+  // Inline so PDFs/text/images render in the preview panel; attachment forces a save.
+  res.set("content-disposition", (wantDownload ? "attachment" : "inline") + '; filename="' + name + '"');
+  return res.send(buf);
+}
+
 // True if an IP literal is loopback, link-local, private, or otherwise not a
 // globally-routable address we should let the server fetch on a client's behalf.
 function isPrivateIp(ip) {
@@ -1191,26 +1200,7 @@ app.get("/api/file", async (req, res) => {
     if (!upstream.ok) return res.status(upstream.status).json({ error: "Upstream returned " + upstream.status });
     const ctype = upstream.headers.get("content-type") || "application/octet-stream";
     const buf = Buffer.from(await upstream.arrayBuffer());
-
-    // Render Word documents to HTML for a faithful, formatted inline preview.
-    if (wantHtml && (/wordprocessingml|officedocument\.word|msword/i.test(ctype) || /\.docx?$/i.test(name))) {
-      try {
-        const mammoth = require("mammoth");
-        const { value: html } = await mammoth.convertToHtml({ buffer: buf });
-        res.set("content-type", "text/html; charset=utf-8");
-        res.set("cache-control", "private, max-age=300");
-        return res.send(html || "<p><em>Empty document.</em></p>");
-      } catch (e) {
-        return res.status(415).json({ error: "Could not render document: " + e.message });
-      }
-    }
-
-    res.set("content-type", ctype);
-    res.set("cache-control", "private, max-age=300");
-    res.set("x-content-type-options", "nosniff");
-    // Inline so PDFs/text/images render in the preview panel; attachment forces a save.
-    res.set("content-disposition", (wantDownload ? "attachment" : "inline") + '; filename="' + name + '"');
-    return res.send(buf);
+    return serveDocumentBuffer(res, buf, name, ctype, { wantHtml, wantDownload });
   } catch (err) {
     res.status(502).json({ error: "Fetch failed: " + err.message });
   }
