@@ -297,7 +297,7 @@ if (docsBtnEl) {
   });
 });
 
-// ---------- theme (light default, dark opt-in; persisted) ----------
+// ---------- theme (dark default, light opt-out; persisted) ----------
 (function wireTheme() {
   const btn = $('themeToggle');
   if (!btn) return;
