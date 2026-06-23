@@ -1080,11 +1080,6 @@ if (skillSelectEl) {
 
 // ---------- composer file attachments ----------
 let ATTACHMENTS = [];
-function fmtBytes(n) {
-  if (n < 1024) return n + ' B';
-  if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
-  return (n / 1048576).toFixed(1) + ' MB';
-}
 function renderAttachments() {
   const listEl = document.getElementById('attachList');
   if (!listEl) return;
@@ -1094,7 +1089,7 @@ function renderAttachments() {
     '<span class="attach-chip">'
     + '<span class="ac-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>'
     + '<span class="ac-name">' + escH(a.filename) + '</span>'
-    + '<span class="ac-size">' + fmtBytes(a.size) + '</span>'
+    + '<span class="ac-size">' + bytesH(a.size) + '</span>'
     + '<button class="ac-rm" type="button" data-idx="' + idx + '" title="Remove" aria-label="Remove attachment">'
     + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
     + '</button></span>'
