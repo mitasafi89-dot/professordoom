@@ -935,6 +935,8 @@ const AUTOCONTINUE_DIRECTIVE =
   // the user. Anything they must read/download has to be exported as an artifact.
   'Any file the user must see (manuscript, figures, tables, datasets, cover letter, checklist) MUST be exported as a ' +
   'downloadable artifact via sandbox_download \u2014 a file that exists only inside the sandbox has NOT been delivered. ' +
+  'The app automatically shows every exported artifact to the user as a downloadable card, so refer to deliverables by ' +
+  'filename in your reply and do NOT paste raw file URLs (a raw gumloop.com link may not be openable by the user). ' +
   'Before emitting the completion token, confirm every deliverable has been exported and is downloadable. ' +
   'Stop only when ONE of these is true: (a) the whole task is genuinely complete AND all deliverables are exported \u2014 ' +
   'then end your FINAL message with the exact token \u27e6TASK_COMPLETE\u27e7 on its own line; or (b) you truly need a ' +

@@ -27,6 +27,10 @@ const docsListEl = $('docsList');
 
 let GUMMIE_ID = '';
 let CURRENT_INTERACTION = null;
+// Map of stored-document artifact URL (origin+path, query-stripped) -> document id,
+// so links to a Gumloop artifact can be served from our durable copy instead of
+// sending the user to an external gumloop.com URL they may not be able to open.
+let DOC_BY_URL = {};
 // Restore the previously-chosen model so a refresh / skill change keeps it.
 let SELECTED_MODEL = (function () {
   try {
@@ -65,13 +69,47 @@ async function gl(pathAndQuery) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
+function docUrlKey(u) { try { const x = new URL(u, location.origin); return x.origin + x.pathname; } catch { return String(u || ''); } }
+function isArtifactHost(host) {
+  host = (host || '').toLowerCase();
+  return host === 'gumloop.com' || host.endsWith('.gumloop.com')
+      || host === 'storage.googleapis.com' || host.endsWith('.storage.googleapis.com');
+}
+// Route a Gumloop artifact URL through THIS origin so the user can actually open
+// it without a gumloop.com login: prefer the durable stored copy
+// (/api/documents/:id) when we have captured it, else the hardened /api/file
+// proxy. Same-origin and non-artifact external links are returned unchanged.
+function artifactHref(url, text) {
+  let u; try { u = new URL(url, location.origin); } catch { return url; }
+  if (u.origin === location.origin) return url;
+  if (!isArtifactHost(u.hostname)) return url;
+  const id = DOC_BY_URL[docUrlKey(url)];
+  if (id) return '/api/documents/' + encodeURIComponent(id);
+  return '/api/file?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent((text || 'document').slice(0, 120));
+}
+
 function render(text) {
-  const esc = String(text || '').replace(/\u27e6TASK_COMPLETE\u27e7/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let s = String(text || '').replace(/\u27e6TASK_COMPLETE\u27e7/g, '');
+  // Pull links OUT before HTML-escaping so URLs + query strings survive intact,
+  // route artifact links through this origin, then reinsert them as anchors.
+  const links = [];
+  const stash = (label, url) => '\u0000L' + (links.push({ label, url }) - 1) + '\u0000';
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => stash(t, u));
+  s = s.replace(/(^|[\s(])(https?:\/\/[^\s)<>]+)/g, (m, pre, u) => {
+    const trail = (u.match(/[.,;:!?]+$/) || [''])[0];
+    if (trail) u = u.slice(0, -trail.length);
+    return pre + stash(u, u) + trail;
+  });
+  const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const withCode = esc.replace(/```([\s\S]*?)```/g, (_, c) => '<pre><code>' + c.trim() + '</code></pre>');
   const inline = withCode
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>');
-  return inline.split(/\n{2,}/).map((p) => (p.startsWith('<pre>') ? p : '<p>' + p.replace(/\n/g, '<br>') + '</p>')).join('');
+  let html = inline.split(/\n{2,}/).map((p) => (p.startsWith('<pre>') ? p : '<p>' + p.replace(/\n/g, '<br>') + '</p>')).join('');
+  return html.replace(/\u0000L(\d+)\u0000/g, (_, i) => {
+    const lk = links[+i] || { label: '', url: '#' };
+    return '<a href="' + escH(artifactHref(lk.url, lk.label)) + '" target="_blank" rel="noopener noreferrer">' + escH(lk.label) + '</a>';
+  });
 }
 
 // extract readable text from an assistant message's parts[]
@@ -237,6 +275,10 @@ async function refreshDocuments() {
     const q = (DOCS_SCOPE === 'chat') ? (iid ? '?interaction_id=' + encodeURIComponent(iid) : '?interaction_id=__none__') : '';
     const d = await (await fetch('/api/documents' + q)).json();
     const docs = d.documents || [];
+    // Index artifact URL -> stored doc id so render() can link deliverables to
+    // our durable copy instead of an external gumloop.com URL.
+    DOC_BY_URL = {};
+    for (const dn of docs) { if (dn.artifact_url) DOC_BY_URL[docUrlKey(dn.artifact_url)] = dn.id; }
     if (docsCountEl) {
       if (docs.length) { docsCountEl.hidden = false; docsCountEl.textContent = String(docs.length); docsBtnEl.classList.add('has-docs'); }
       else { docsCountEl.hidden = true; docsBtnEl.classList.remove('has-docs'); }
