@@ -1107,3 +1107,39 @@ input, textarea, select { accent-color: var(--brand); }
   .credit-info { min-width: 64px; }
   .credit-meter .credit-text { display: none; }
 }
+
+/* ===================== Documents button + panel ===================== */
+.docs-wrap { position: relative; flex: 0 0 auto; }
+.docs-btn { position: relative; }
+.docs-btn.has-docs { color: var(--brand, #2f6f5e); }
+.docs-count {
+  position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; line-height: 1; color: #fff; background: var(--brand, #2f6f5e);
+  border-radius: 9px; box-shadow: 0 0 0 2px var(--surface);
+}
+.docs-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 380px; max-width: 88vw; z-index: 60;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(14,38,48,.18)); overflow: hidden;
+}
+.docs-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; font-weight: 700; color: var(--ink);
+}
+.docs-scope { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-xs); overflow: hidden; }
+.docs-scope-btn {
+  border: none; background: var(--surface-2); color: var(--text-dim);
+  font-size: 11px; font-weight: 600; padding: 3px 9px; cursor: pointer;
+}
+.docs-scope-btn + .docs-scope-btn { border-left: 1px solid var(--border-2); }
+.docs-scope-btn.active { background: var(--brand, #2f6f5e); color: #fff; }
+.docs-list { max-height: 360px; overflow-y: auto; }
+.doc-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.doc-item:last-child { border-bottom: none; }
+.doc-ico { font-size: 18px; flex: 0 0 auto; }
+.doc-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.doc-name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-sub { font-size: 11px; color: var(--text-faint); }
+.doc-actions { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.docs-empty { padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--text-faint); }

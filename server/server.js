@@ -267,6 +267,13 @@ async function connectDb(url) {
   await p.query(`CREATE TABLE IF NOT EXISTS pd_skills (
     slug text PRIMARY KEY, label text, filename text, contract text,
     updated_at timestamptz DEFAULT now())`);
+  // Processed deliverables (manuscript, figures, references, ...) captured as the
+  // agent exports them, stored durably so they stay downloadable/previewable.
+  await p.query(`CREATE TABLE IF NOT EXISTS pd_documents (
+    id text PRIMARY KEY, interaction_id text, conversation_name text,
+    filename text, media_type text, artifact_url text, bytes bigint,
+    version int DEFAULT 1, content bytea,
+    created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())`);
   if (pool) { try { await pool.end(); } catch {} }
   pool = p;
   state.dbUrl = url;
@@ -408,6 +415,92 @@ async function logMessage(interactionId, role, content, model) {
   } catch (e) { /* logging is best-effort */ }
 }
 
+// ===================== Processed-document persistence =====================
+// As the agent exports deliverables (file artifacts) after each phase, capture
+// the bytes and store them durably (Postgres bytea, size-capped) so they remain
+// downloadable/previewable even after the upstream artifact URL expires, and
+// accumulate into a per-conversation library. Falls back to an in-memory store
+// when no database is connected (lost on restart, fine for local/dev use).
+const MAX_DOC_BYTES = 25 * 1024 * 1024; // store inline up to 25MB; larger -> metadata + live URL only
+const memDocs = new Map(); // id -> full doc (fallback when no DB)
+
+function docId(iid, filename) {
+  return crypto.createHash("sha1").update(String(iid) + "|" + String(filename))
+    .digest("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 22);
+}
+async function docUpsert(doc) {
+  const bytes = doc.content ? doc.content.length : 0;
+  if (pool) {
+    await pool.query(
+      `INSERT INTO pd_documents(id, interaction_id, conversation_name, filename, media_type, artifact_url, bytes, content, version, created_at, updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,now(),now())
+       ON CONFLICT (id) DO UPDATE SET conversation_name=$3, media_type=$5, artifact_url=$6,
+         bytes=$7, content=$8, version=pd_documents.version+1, updated_at=now()`,
+      [doc.id, doc.interaction_id, doc.conversation_name || null, doc.filename,
+       doc.media_type || null, doc.artifact_url || null, bytes, doc.content || null]);
+  } else {
+    const prev = memDocs.get(doc.id);
+    memDocs.set(doc.id, { ...doc, bytes, version: prev ? prev.version + 1 : 1,
+      created_at: prev ? prev.created_at : new Date().toISOString(), updated_at: new Date().toISOString() });
+  }
+}
+async function docMeta(id) {
+  if (pool) {
+    const r = await pool.query("SELECT id, interaction_id, filename, media_type, artifact_url, bytes FROM pd_documents WHERE id=$1", [id]);
+    return r.rows[0] || null;
+  }
+  const d = memDocs.get(id); if (!d) return null;
+  const { content, ...meta } = d; return meta;
+}
+async function docList(iid) {
+  if (pool) {
+    const params = []; let where = "";
+    if (iid) { where = "WHERE interaction_id=$1"; params.push(iid); }
+    const r = await pool.query(
+      `SELECT id, interaction_id, conversation_name, filename, media_type, artifact_url, bytes, version, created_at, updated_at
+       FROM pd_documents ${where} ORDER BY updated_at DESC LIMIT 200`, params);
+    return r.rows;
+  }
+  let rows = [...memDocs.values()].map(({ content, ...m }) => m);
+  if (iid) rows = rows.filter((d) => d.interaction_id === iid);
+  rows.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+  return rows;
+}
+async function docFetch(id) {
+  if (pool) {
+    const r = await pool.query("SELECT id, filename, media_type, artifact_url, content FROM pd_documents WHERE id=$1", [id]);
+    const row = r.rows[0]; if (!row) return null;
+    return { ...row, content: row.content ? Buffer.from(row.content) : null };
+  }
+  return memDocs.get(id) || null;
+}
+// Capture every file artifact in a finished turn's parts[]. Best-effort and
+// idempotent: a filename re-exported with the SAME url is skipped; a new version
+// (new url) replaces the stored bytes and bumps the version.
+async function persistDocuments(iid, convName, parts) {
+  if (!Array.isArray(parts)) return;
+  for (const p of parts) {
+    if (!p || p.type !== "file" || !p.file || !p.file.artifact_url) continue;
+    const f = p.file;
+    const name = String(f.filename || "file").split("/").pop();
+    const url = f.artifact_url;
+    const id = docId(iid, name);
+    try {
+      const existing = await docMeta(id);
+      if (existing && existing.artifact_url === url) continue;
+      const safe = safeArtifactUrl(url);
+      if (!safe) continue;
+      const r = await fetch(safe, { redirect: "follow" });
+      if (!r.ok) { recordError("documents", "fetch " + name + " -> HTTP " + r.status, r.status); continue; }
+      const ctype = r.headers.get("content-type") || f.media_type || "application/octet-stream";
+      const buf = Buffer.from(await r.arrayBuffer());
+      const content = buf.length <= MAX_DOC_BYTES ? buf : null;
+      await docUpsert({ id, interaction_id: iid, conversation_name: convName, filename: name,
+        media_type: f.media_type || ctype, artifact_url: url, content });
+    } catch (e) { recordError("documents", "persist " + name + ": " + e.message); }
+  }
+}
+
 // ===================== Firebase token minting =====================
 async function mintIdToken(overrideToken, overrideApiKey) {
   const refreshToken = (overrideToken && overrideToken.trim()) || state.refreshToken;
@@ -499,6 +592,49 @@ app.get("/api/errors", (req, res) => {
 app.post("/api/errors/clear", (req, res) => {
   state.recentErrors = [];
   res.json({ ok: true });
+});
+
+// ===================== Processed documents =====================
+// List stored deliverables (metadata only). ?interaction_id=... filters to one
+// conversation; omit it for the whole library.
+app.get("/api/documents", async (req, res) => {
+  try {
+    const iid = String(req.query.interaction_id || "").trim() || null;
+    res.json({ documents: await docList(iid) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Serve a stored deliverable from the database (durable). ?dl=1 forces download;
+// ?as=html renders a Word doc to HTML for inline preview. Falls back to proxying
+// the live artifact URL for documents too large to store inline.
+app.get("/api/documents/:id", async (req, res) => {
+  try {
+    const doc = await docFetch(String(req.params.id));
+    if (!doc) return res.status(404).json({ error: "Document not found." });
+    const name = (String(doc.filename || "document").split("/").pop() || "document").replace(/[\r\n"\\]/g, "");
+    const wantHtml = req.query.as === "html";
+    const wantDownload = req.query.dl === "1";
+    if (!doc.content) {
+      if (!doc.artifact_url) return res.status(410).json({ error: "Document content unavailable." });
+      return res.redirect(302, "/api/file?url=" + encodeURIComponent(doc.artifact_url) + "&name=" + encodeURIComponent(name) +
+        (wantHtml ? "&as=html" : "") + (wantDownload ? "&dl=1" : ""));
+    }
+    const buf = doc.content;
+    const ctype = doc.media_type || "application/octet-stream";
+    if (wantHtml && (/wordprocessingml|officedocument\.word|msword/i.test(ctype) || /\.docx?$/i.test(name))) {
+      try {
+        const mammoth = require("mammoth");
+        const { value: html } = await mammoth.convertToHtml({ buffer: buf });
+        res.set("content-type", "text/html; charset=utf-8");
+        res.set("cache-control", "private, max-age=300");
+        return res.send(html || "<p><em>Empty document.</em></p>");
+      } catch (e) { return res.status(415).json({ error: "Could not render document: " + e.message }); }
+    }
+    res.set("content-type", ctype);
+    res.set("cache-control", "private, max-age=300");
+    res.set("x-content-type-options", "nosniff");
+    res.set("content-disposition", (wantDownload ? "attachment" : "inline") + '; filename="' + name + '"');
+    return res.send(buf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Current non-secret config, so the admin form can REPOPULATE on load.
@@ -1000,12 +1136,14 @@ app.post("/api/send/stream", async (req, res) => {
     // REST reconciliation, the authoritative final parts for an exact re-render.
     let reply = streamText.trim();
     let parts = null;
+    let convName = null;
     try {
       await new Promise((r) => setTimeout(r, 600));
       const rr = await fetch(API + "/gummie_interactions/" + iid, { headers: restHeaders(idToken, uid) });
       restStatus = rr.status;
       if (rr.ok) {
         const d = await rr.json();
+        convName = (d.interaction && d.interaction.name) || null;
         const msgs = (d.interaction && d.interaction.messages) || [];
         const last = [...msgs].reverse().find((m) => m.role === "assistant");
         if (last) {
@@ -1044,6 +1182,8 @@ app.post("/api/send/stream", async (req, res) => {
     }
     if (wsError) { recordError("send", wsError, closeInfo && closeInfo.code); sse("error", { error: wsError }); }
     else if (noOutput) { recordError("send", diagnostic, restStatus || (closeInfo && closeInfo.code)); sse("error", { error: diagnostic }); }
+    // Persist any deliverables this turn produced (fire-and-forget; never blocks done).
+    if (Array.isArray(parts) && parts.length) persistDocuments(iid, convName, parts).catch(() => {});
     sse("done", { interaction_id: iid, is_new: isNew, reply: reply || diagnostic || "(no text returned)", parts, pending, complete, diagnostic });
     try { res.end(); } catch {}
   };
@@ -1085,6 +1225,9 @@ function safeArtifactUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return null; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  // Opt-in bypass for self-hosting where artifacts are served from the same
+  // private network/origin, and for the local test harness. Default OFF.
+  if (process.env.PD_ALLOW_LOCAL_FETCH === "1") return u.toString();
   const host = u.hostname.toLowerCase();
   // Block obvious SSRF targets (loopback / link-local / RFC1918).
   if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(host)) return null;

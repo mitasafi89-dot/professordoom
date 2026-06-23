@@ -211,3 +211,44 @@ flag. The meter is now a **depleting "remaining" bar** (full = healthy, capped a
 100% when remaining > limit), and the composer/auto-loop stop on `blocked`
 (exhausted OR restricted OR past-due), with the reason shown in the banner.
 Verified against the exact HAR shape in `tests/test_credits_errors.js`.
+
+## 9. Phase 9, Processed-document persistence + library ✅
+
+**Problem.** Deliverables only existed as `file` parts on a single message,
+pointing at Gumloop artifact URLs that can expire. There was no durable, browsable
+record of what the agent produced across a long, multi-phase task, and no single
+place to download/preview each phase's output.
+
+**Research.** Postgres `bytea` (TOAST-backed) is the right fit for small/moderate
+binaries with simple SQL CRUD; large objects/Supabase Storage buckets are only
+warranted for very large or CDN-delivered media. Since the app has only a
+`DATABASE_URL` (no Storage bucket credentials) and deliverables are a few MB,
+`bytea` keeps the feature self-contained — chosen with a 25MB inline cap (larger
+files keep metadata + the live URL) and an in-memory fallback when no DB.
+
+**Solution.**
+- **Schema.** New `pd_documents(id, interaction_id, conversation_name, filename,
+  media_type, artifact_url, bytes, version, content bytea, created_at, updated_at)`.
+  `id = sha1(interaction_id|filename)` so a re-export upserts in place and bumps
+  `version`; a new filename is a new row.
+- **Capture.** On each finished turn, `persistDocuments()` scans the authoritative
+  `parts[]` for `file` artifacts, fetches the bytes once (idempotent: same URL is
+  skipped, a new URL replaces + versions), and stores them. Fire-and-forget so it
+  never delays the `done` event; failures are logged to the error feed.
+- **Serve.** `GET /api/documents[?interaction_id=]` lists the library;
+  `GET /api/documents/:id` streams bytes from the DB (`?dl=1` download,
+  `?as=html` Word to HTML via mammoth), falling back to proxying the live artifact
+  URL for files too big to store inline.
+- **UI.** A header **Documents** button (folder icon + count badge) opens a panel
+  listing saved deliverables (This chat / All), each with **Preview** and
+  **Download**. The preview panel was refactored to be source-agnostic (carries
+  view/html/download URLs) so the exact same panel renders both thread artifacts
+  and stored documents.
+- **Security.** Artifact fetches still go through `safeArtifactUrl` (SSRF guard);
+  a default-OFF `PD_ALLOW_LOCAL_FETCH=1` opt-in covers same-origin self-hosting
+  and the test harness.
+
+**Verified** by `tests/test_documents.js` (capture, durable byte-exact download +
+inline serve, idempotency, versioning, and a second deliverable) plus the existing
+auto-continue and credits/errors suites (UI loads with the new controls, zero page
+errors).

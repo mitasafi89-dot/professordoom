@@ -20,6 +20,10 @@ const errorBtnEl = $('errorBtn');
 const errorCountEl = $('errorCount');
 const errorPanelEl = $('errorPanel');
 const errorListEl = $('errorList');
+const docsBtnEl = $('docsBtn');
+const docsCountEl = $('docsCount');
+const docsPanelEl = $('docsPanel');
+const docsListEl = $('docsList');
 
 let GUMMIE_ID = '';
 let CURRENT_INTERACTION = null;
@@ -216,6 +220,83 @@ if (errorClearEl) {
   });
 }
 
+// ---------- documents (saved deliverables) ----------
+let DOCS_OPEN = false;
+let DOCS_SCOPE = 'chat'; // 'chat' = current conversation, 'all' = whole library
+function bytesH(n) {
+  if (!n || n <= 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+async function refreshDocuments() {
+  if (!docsBtnEl) return;
+  try {
+    const iid = (DOCS_SCOPE === 'chat' && CURRENT_INTERACTION) ? CURRENT_INTERACTION : '';
+    // In "chat" scope with no open conversation there are no docs to show.
+    const q = (DOCS_SCOPE === 'chat') ? (iid ? '?interaction_id=' + encodeURIComponent(iid) : '?interaction_id=__none__') : '';
+    const d = await (await fetch('/api/documents' + q)).json();
+    const docs = d.documents || [];
+    if (docsCountEl) {
+      if (docs.length) { docsCountEl.hidden = false; docsCountEl.textContent = String(docs.length); docsBtnEl.classList.add('has-docs'); }
+      else { docsCountEl.hidden = true; docsBtnEl.classList.remove('has-docs'); }
+    }
+    if (DOCS_OPEN) renderDocsList(docs);
+  } catch { /* ignore */ }
+}
+function renderDocsList(docs) {
+  if (!docsListEl) return;
+  if (!docs || !docs.length) {
+    docsListEl.innerHTML = '<div class="docs-empty">No saved documents yet. Deliverables are saved here automatically as the agent produces them.</div>';
+    return;
+  }
+  docsListEl.innerHTML = docs.map((dn) => {
+    const name = String(dn.filename || 'document');
+    const mt = dn.media_type || '';
+    const kind = previewKind(name, mt);
+    const base = '/api/documents/' + encodeURIComponent(dn.id);
+    const viewUrl = base, htmlUrl = base + '?as=html', dlUrl = base + '?dl=1';
+    const preBtn = previewBtnHTML(name, mt, kind, viewUrl, htmlUrl, dlUrl);
+    const meta = [
+      (fileExt(name) ? fileExt(name).toUpperCase() : 'FILE'),
+      bytesH(dn.bytes),
+      (dn.version && dn.version > 1 ? 'v' + dn.version : ''),
+      relTimeShort(dn.updated_at),
+    ].filter(Boolean).join(' \u00b7 ');
+    return '<div class="doc-item">' +
+      '<span class="doc-ico">' + fileIcon(kind) + '</span>' +
+      '<span class="doc-meta"><span class="doc-name">' + escH(name) + '</span>' +
+      '<span class="doc-sub">' + escH(meta) + '</span></span>' +
+      '<span class="doc-actions">' + preBtn +
+      '<a class="file-btn file-dl" href="' + escH(dlUrl) + '">Download</a></span></div>';
+  }).join('');
+}
+async function openDocs(show) {
+  DOCS_OPEN = show;
+  if (docsPanelEl) docsPanelEl.hidden = !show;
+  if (show) {
+    docsListEl.innerHTML = '<div class="docs-empty">Loading\u2026</div>';
+    await refreshDocuments();
+  }
+}
+if (docsBtnEl) {
+  docsBtnEl.addEventListener('click', () => openDocs(!DOCS_OPEN));
+  document.addEventListener('click', (e) => {
+    if (DOCS_OPEN && !e.target.closest('.docs-wrap') && !e.target.closest('.preview-panel')) openDocs(false);
+  });
+}
+['docsScopeChat', 'docsScopeAll'].forEach((id) => {
+  const b = $(id); if (!b) return;
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    DOCS_SCOPE = id === 'docsScopeAll' ? 'all' : 'chat';
+    const c = $('docsScopeChat'), a = $('docsScopeAll');
+    if (c) c.classList.toggle('active', DOCS_SCOPE === 'chat');
+    if (a) a.classList.toggle('active', DOCS_SCOPE === 'all');
+    refreshDocuments();
+  });
+});
+
 // ---------- profile ----------
 async function loadProfile() {
   try {
@@ -351,6 +432,7 @@ async function openConversation(interactionId, name, el) {
   if (el) el.classList.add('active');
   threadEl.classList.remove('is-landing');
   threadInner.innerHTML = '<div class="empty"><span class="typing"><span></span><span></span><span></span></span></div>';
+  if (typeof refreshDocuments === 'function') refreshDocuments();
   try {
     const d = await gl('gummie_interactions/' + interactionId);
     const msgs = (d.interaction && d.interaction.messages) || [];
@@ -767,6 +849,7 @@ async function runTurn(text, opts) {
     // consumption and failures are always current without a manual reload.
     refreshCredits();
     refreshErrors();
+    refreshDocuments();
   }
   return outcome;
 }
@@ -923,8 +1006,9 @@ if (skillSelectEl) {
     await loadConversations();
     refreshCredits();
     refreshErrors();
+    refreshDocuments();
   }
-  setInterval(() => { refreshStatus(); refreshCredits(); refreshErrors(); }, 20000);
+  setInterval(() => { refreshStatus(); refreshCredits(); refreshErrors(); refreshDocuments(); }, 20000);
 })();
 
 
@@ -1100,16 +1184,23 @@ function proxyURL(url, name, extra) {
   return q;
 }
 
+// A Preview button is source-agnostic: it carries the view/html/download URLs so
+// the same panel works for both thread artifacts (/api/file proxy) and stored
+// documents (/api/documents/:id).
+function previewBtnHTML(name, mt, kind, viewUrl, htmlUrl, dlUrl) {
+  if (!kind || !viewUrl) return '';
+  return '<button type="button" class="file-btn file-preview" data-name="' + escH(name) + '" data-mt="' + escH(mt || '') +
+    '" data-kind="' + kind + '" data-view="' + escH(viewUrl) + '" data-html="' + escH(htmlUrl || '') + '" data-dl="' + escH(dlUrl || '') + '">Preview</button>';
+}
+
 function fileCardHTML(name, url, mt) {
   const kind = previewKind(name, mt);
   const typeLabel = mt || (fileExt(name) ? fileExt(name).toUpperCase() : 'FILE');
-  const preBtn = (url && kind)
-    ? '<button type="button" class="file-btn file-preview" data-url="' + escH(url) + '" data-name="' + escH(name) +
-      '" data-mt="' + escH(mt) + '" data-kind="' + kind + '">Preview</button>'
-    : '';
-  const dlBtn = url
-    ? '<a class="file-btn file-dl" href="' + escH(proxyURL(url, name, '&dl=1')) + '">Download</a>'
-    : '';
+  const viewUrl = url ? proxyURL(url, name) : '';
+  const htmlUrl = url ? proxyURL(url, name, '&as=html') : '';
+  const dlUrl = url ? proxyURL(url, name, '&dl=1') : '';
+  const preBtn = previewBtnHTML(name, mt, kind, viewUrl, htmlUrl, dlUrl);
+  const dlBtn = url ? '<a class="file-btn file-dl" href="' + escH(dlUrl) + '">Download</a>' : '';
   return '<div class="file-card">' +
     '<span class="file-ico">' + fileIcon(kind) + '</span>' +
     '<span class="file-meta"><span class="file-name">' + escH(name) + '</span>' +
@@ -1117,10 +1208,10 @@ function fileCardHTML(name, url, mt) {
     '<span class="file-actions">' + preBtn + dlBtn + '</span></div>';
 }
 
-function previewFallback(name, url) {
-  return '<div class="preview-empty"><div class="preview-empty-ico">📎</div>' +
+function previewFallback(name, dlUrl) {
+  return '<div class="preview-empty"><div class="preview-empty-ico">\uD83D\uDCCE</div>' +
     '<p>This file type can&rsquo;t be shown inline.</p>' +
-    (url ? '<a class="file-btn file-dl" href="' + escH(proxyURL(url, name, '&dl=1')) + '">Download ' + escH(name) + '</a>' : '') +
+    (dlUrl ? '<a class="file-btn file-dl" href="' + escH(dlUrl) + '">Download ' + escH(name) + '</a>' : '') +
     '</div>';
 }
 
@@ -1140,50 +1231,55 @@ function previewFallback(name, url) {
     body.innerHTML = '';
   }
 
-  function open(url, name, mt, kind) {
+  function open(o) {
+    const name = o.name || 'Document', mt = o.mt || '', kind = o.kind || '';
+    const viewUrl = o.viewUrl || '', htmlUrl = o.htmlUrl || viewUrl, dlUrl = o.dlUrl || viewUrl;
     if (nameEl) nameEl.textContent = name;
     if (typeEl) typeEl.textContent = mt || (fileExt(name) ? fileExt(name).toUpperCase() : '');
-    if (dlEl) dlEl.href = proxyURL(url, name, '&dl=1');
+    if (dlEl) dlEl.href = dlUrl;
     document.body.classList.add('preview-open');
     panel.setAttribute('aria-hidden', 'false');
     body.innerHTML = '<div class="preview-loading"><span class="typing"><span></span><span></span><span></span></span> Loading preview&hellip;</div>';
-    const src = proxyURL(url, name);
 
     if (kind === 'pdf') {
-      body.innerHTML = '<iframe class="preview-frame" src="' + escH(src) + '" title="' + escH(name) + '"></iframe>';
+      body.innerHTML = '<iframe class="preview-frame" src="' + escH(viewUrl) + '" title="' + escH(name) + '"></iframe>';
     } else if (kind === 'image') {
       const img = new Image();
       img.className = 'preview-img';
       img.alt = name;
       img.onload = () => { body.innerHTML = ''; body.appendChild(wrapImg(img)); };
-      img.onerror = () => { body.innerHTML = previewFallback(name, url); };
-      img.src = src;
+      img.onerror = () => { body.innerHTML = previewFallback(name, dlUrl); };
+      img.src = viewUrl;
     } else if (kind === 'doc') {
-      fetch(src + '&as=html').then((r) => r.ok ? r.text() : Promise.reject()).then((html) => {
+      fetch(htmlUrl).then((r) => r.ok ? r.text() : Promise.reject()).then((html) => {
         body.innerHTML = '<div class="preview-doc">' + (html || '<p><em>Empty document.</em></p>') + '</div>';
-      }).catch(() => { body.innerHTML = previewFallback(name, url); });
+      }).catch(() => { body.innerHTML = previewFallback(name, dlUrl); });
     } else if (kind === 'text') {
-      fetch(src).then((r) => r.ok ? r.text() : Promise.reject()).then((txt) => {
+      fetch(viewUrl).then((r) => r.ok ? r.text() : Promise.reject()).then((txt) => {
         const e = fileExt(name);
         if (e === 'md' || e === 'markdown' || /markdown/i.test(mt)) {
           body.innerHTML = '<div class="preview-doc">' + render(txt) + '</div>';
         } else {
           body.innerHTML = '<pre class="preview-pre">' + escH(txt) + '</pre>';
         }
-      }).catch(() => { body.innerHTML = previewFallback(name, url); });
+      }).catch(() => { body.innerHTML = previewFallback(name, dlUrl); });
     } else {
-      body.innerHTML = previewFallback(name, url);
+      body.innerHTML = previewFallback(name, dlUrl);
     }
   }
+  window.PDPreview = { open };
 
   function wrapImg(img) { const d = document.createElement('div'); d.className = 'preview-img-wrap'; d.appendChild(img); return d; }
 
-  // Delegated: any Preview button anywhere in the thread opens the panel.
+  // Delegated: any Preview button anywhere (thread or documents panel) opens the panel.
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.file-preview');
     if (!btn) return;
     e.preventDefault();
-    open(btn.getAttribute('data-url'), btn.getAttribute('data-name'), btn.getAttribute('data-mt'), btn.getAttribute('data-kind'));
+    open({
+      name: btn.getAttribute('data-name'), mt: btn.getAttribute('data-mt'), kind: btn.getAttribute('data-kind'),
+      viewUrl: btn.getAttribute('data-view'), htmlUrl: btn.getAttribute('data-html'), dlUrl: btn.getAttribute('data-dl'),
+    });
   });
   if (closeEl) closeEl.addEventListener('click', close);
   if (backdrop) backdrop.addEventListener('click', close);
