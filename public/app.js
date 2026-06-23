@@ -204,11 +204,9 @@ function renderConvList() {
     }
     const el = document.createElement('button');
     el.className = 'conv' + (c.interaction_id === CURRENT_INTERACTION ? ' active' : '');
-    const st = (c.state || '').toLowerCase();
     el.innerHTML =
       '<div class="conv-row"><span class="conv-title">' + escH(c.name || 'Untitled') + '</span>' +
-      '<span class="conv-time">' + escH(relTime(c.created_ts)) + '</span></div>' +
-      (c.state ? '<div class="conv-meta"><span class="conv-state ' + escH(st) + '">' + escH(c.state) + '</span></div>' : '');
+      '<span class="conv-time">' + escH(relTime(c.created_ts)) + '</span></div>';
     el.addEventListener('click', () => {
       CURRENT_INTERACTION = c.interaction_id;
       renderConvList();
