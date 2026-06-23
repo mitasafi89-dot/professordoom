@@ -243,16 +243,6 @@ function landingHTML(subtitle) {
     + '</div>';
 }
 
-// Suggestion-card click -> fill composer (event delegation, set once)
-threadInner.addEventListener('click', (e) => {
-  const card = e.target.closest('.suggestion-card');
-  if (!card) return;
-  inputEl.value = card.getAttribute('data-prompt') || '';
-  inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-  inputEl.focus();
-  inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
-});
-
 function renderThread(msgs) {
   threadEl.classList.remove('is-landing');
   threadInner.innerHTML = '';
