@@ -6,7 +6,10 @@
    Visual layer only, every element id / class hook is preserved so the
    existing app.js / admin.js continue to work unchanged.
    =========================================================================== */
-@import url("https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&family=Noto+Serif:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+/* Fonts (Mulish / Noto Serif / JetBrains Mono) are loaded via a <link> in the
+   HTML <head> instead of an @import here. A CSS @import forces a serial
+   waterfall (download CSS -> parse -> discover import -> download fonts); a
+   <link> lets the browser fetch fonts in parallel with the stylesheet. */
 
 :root {
   /* ---- brand: deep academic teal ---- */
