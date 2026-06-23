@@ -687,6 +687,47 @@ function clearAutoNote() {
   if (el) { el.textContent = ''; el.style.display = 'none'; el.classList.remove('done'); }
 }
 
+// Interval handle for the in-flight elapsed-time ticker (one turn at a time).
+let liveTimer = null;
+
+// Human "what's happening right now" phrase for the status ticker. Prefer the
+// agent's own work-log caption (specific + readable) over the raw tool name;
+// fall back to a tool-type phrase, then a generic verb.
+function liveStatusFor(name, cap) {
+  const c = (cap || '').trim();
+  const n = (name || '').toLowerCase();
+  if (c && c.toLowerCase() !== n) return c.replace(/[.\u2026\s]+$/, '') + '\u2026';
+  if (n.includes('web_search')) return 'Searching the web\u2026';
+  if (n.includes('web_fetch')) return 'Reading a web page\u2026';
+  if (n.includes('image')) return 'Generating an image\u2026';
+  if (n.includes('ask_human')) return 'Waiting for your input\u2026';
+  if (n.includes('sandbox_file') || n.includes('sandbox_match')) return 'Reading files\u2026';
+  if (n.startsWith('sandbox')) return 'Working in the sandbox\u2026';
+  if (n) return 'Running ' + name + '\u2026';
+  return 'Working\u2026';
+}
+
+// Compact, always-moving "alive" elapsed label (e.g. 8s, 1m 04s).
+function fmtElapsed(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60), r = s % 60;
+  return m + 'm ' + (r < 10 ? '0' : '') + r + 's';
+}
+
+// Heuristic used ONLY when auto-continue is OFF: did the turn END by announcing
+// more work (a plan / next step) instead of delivering a finished answer? If so
+// we nudge the user to press Send, without nagging on genuine one-shot answers.
+function looksParked(reply) {
+  const r = (reply || '').trim();
+  if (!r) return false;
+  const seg = r.replace(/[*_`>#]/g, '').split(/[\n.!?]+/).map((s) => s.trim()).filter(Boolean);
+  const last = (seg[seg.length - 1] || '').toLowerCase();
+  if (!last) return false;
+  return /^(let me\b|let's\b|i'?ll\b|i will\b|i'?m going to\b|now i\b|now let\b|next,? i\b|proceeding\b|first,? i\b)/.test(last)
+      || /\b(do both|let me proceed|let me continue|let me start|let me do)\b/.test(last);
+}
+
 // ---------- send (LIVE streaming over SSE) ----------
 // Build the live "Thinking & steps" + answer HTML from the in-flight stream
 // state, with a status line that reflects what the agent is doing right now.
@@ -702,7 +743,12 @@ function renderLive(bubble, live) {
   if (thinking) html += thinkingBlockHTML(thinking, false, stillThinking);
   if (toolSteps.length) html += stepsBlockHTML(toolSteps, true);
   if (live.answer) html += '<div class="answer">' + render(live.answer) + '</div>';
-  if (live.status) html += '<div class="live-status"><span class="live-dot"></span><span>' + escH(live.status) + '</span></div>';
+  if (live.status) {
+    const since = live.startedAt ? fmtElapsed(Date.now() - live.startedAt) : '';
+    html += '<div class="live-status"><span class="live-dot"></span>' +
+      '<span class="live-text">' + escH(live.status) + '</span>' +
+      (since ? '<span class="live-elapsed">' + since + '</span>' : '') + '</div>';
+  }
   bubble.innerHTML = html || '<span class="typing"><span></span><span></span><span></span></span>';
 }
 
@@ -730,7 +776,7 @@ function applyFrame(f, live) {
     const existing = live.steps.find((s) => s.kind === 'tool' && s.key === key);
     if (existing) { if (st) existing.state = st; }
     else live.steps.push({ kind: 'tool', cap, name, state: st, key });
-    live.status = 'Running ' + (name || 'a tool') + '…';
+    live.status = liveStatusFor(name, cap);
     return;
   }
   if (type === 'step-start') { if (!live.answer) live.status = 'Working…'; return; }
@@ -819,9 +865,18 @@ async function runTurn(text, opts) {
   if (!opts.auto) { inputEl.value = ''; autoGrow(); }
 
   const bubble = addRichMessage('', SELECTED_MODEL.label);
-  const live = { steps: [], answer: '', status: 'Connecting\u2026' };
+  const live = { steps: [], answer: '', status: 'Connecting\u2026', startedAt: Date.now() };
   renderLive(bubble, live);
   threadEl.scrollTop = threadEl.scrollHeight;
+  // Tick a client-side elapsed counter every second so the user can SEE the turn
+  // is still alive between server frames. Update only the .live-elapsed text node
+  // (no full re-render) so the thinking block's expand/collapse state is kept.
+  clearInterval(liveTimer);
+  liveTimer = setInterval(() => {
+    if (!live.startedAt) return;
+    const el = bubble.querySelector('.live-elapsed');
+    if (el) el.textContent = fmtElapsed(Date.now() - live.startedAt);
+  }, 1000);
 
   // On-demand contract re-injection (new conversation or skill changed mid-chat).
   const reinject = REINJECT_NEXT; REINJECT_NEXT = false; updateSkillNote();
@@ -907,6 +962,7 @@ async function runTurn(text, opts) {
     }
   } finally {
     if (!finished && !live.answer && !live.steps.length) bubble.innerHTML = render('**No response received.** The connection closed before any output.');
+    clearInterval(liveTimer); liveTimer = null;
     currentAbort = null;
     setSendingUI(false);
     threadEl.scrollTop = threadEl.scrollHeight;
@@ -968,6 +1024,8 @@ async function send() {
     else if (CREDITS_EXHAUSTED) showAutoNote('Stopped \u2014 out of Gumloop credits. Top up to continue.', true);
     else if (outcome.pending) showAutoNote('Paused \u2014 the agent needs your input. Reply below.', true);
     else if (outcome.empty && emptyStreak + (outcome.empty ? 1 : 0) >= STALL_CAP) { /* stall note already shown */ }
+    else if (!AUTO_CONTINUE && !outcome.stopped && !outcome.error && !outcome.empty && looksParked(outcome.reply))
+      showAutoNote('The agent paused mid-task. Press Send to continue.', true);
     else clearAutoNote();
   } finally {
     autoLoopActive = false;

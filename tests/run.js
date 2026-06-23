@@ -19,6 +19,7 @@ const SUITES = [
   "test_streaming_protocol.js",
   "test_file_proxy.js",
   "test_autocontinue.js",
+  "test_live_status.js",
 ];
 
 let failed = 0;
