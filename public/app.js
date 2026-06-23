@@ -236,18 +236,12 @@ async function openConversation(interactionId, name, el) {
 }
 
 function landingHTML(subtitle) {
-  const sub = subtitle || 'ProfessorDoom reads your work like a tough peer reviewer and goes straight for the weakest spot. Start a new critique, or pick a prompt to begin.';
+  const sub = subtitle || 'ProfessorDoom reads your work like a tough peer reviewer and goes straight for the weakest spot. Paste your work below to begin.';
   return ''
     + '<div class="landing">'
     +   '<div class="crest landing-crest" aria-hidden="true"></div>'
     +   '<h2 class="landing-title">Where should we begin?</h2>'
     +   '<p class="landing-sub">' + sub + '</p>'
-    +   '<div class="suggestions">'
-    +     '<button class="suggestion-card" data-prompt="Here is my abstract. Stress-test it: identify the single weakest claim and explain exactly how a hostile reviewer would attack it.\n\n"><span class="sc-title">Stress-test my abstract</span><span class="sc-desc">Find the weakest claim and how a hostile reviewer would attack it.</span></button>'
-    +     '<button class="suggestion-card" data-prompt="Review the following manuscript section as an adversarial reviewer. Find the fatal flaw first, then list lesser issues in order of severity.\n\n"><span class="sc-title">Find the fatal flaw</span><span class="sc-desc">Adversarial review of a methods or results section.</span></button>'
-    +     '<button class="suggestion-card" data-prompt="Scrutinize the statistics and quantitative claims below. Challenge every assumption, test choice, and inference.\n\n"><span class="sc-title">Interrogate my statistics</span><span class="sc-desc">Scrutinize the statistical reasoning and assumptions.</span></button>'
-    +     '<button class="suggestion-card" data-prompt="My thesis is below. Build the strongest possible objection to it, the one most likely to sink the paper in peer review.\n\n"><span class="sc-title">Steelman the objection</span><span class="sc-desc">Build the strongest counterargument to my thesis.</span></button>'
-    +   '</div>'
     + '</div>';
 }
 
