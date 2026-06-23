@@ -16,6 +16,7 @@ const path = require("path");
 const SUITES = [
   "test_credits_errors.js",
   "test_documents.js",
+  "test_streaming_protocol.js",
   "test_autocontinue.js",
 ];
 
